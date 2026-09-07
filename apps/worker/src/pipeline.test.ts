@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MockAiDecisionProvider } from "@jules/ai";
 import { EnvSchema } from "@jules/config";
 import { MockJulesClient } from "@jules/jules-client";
@@ -15,7 +15,7 @@ import { SupervisionPipeline } from "./pipeline.js";
 import { createMockMemoryRepositories, InMemoryMemoryStore } from "@jules/test-utils";
 
 function setupTestPipeline(
-  mode: "DRY_RUN" | "ASSISTED" | "AUTO_RESPOND" | "FULL_AUTO" = "DRY_RUN",
+  mode: "DISABLED" | "DRY_RUN" | "ASSISTED" | "AUTO_RESPOND" | "FULL_AUTO" = "DRY_RUN",
 ) {
   const config = EnvSchema.parse({
     SUPERVISOR_MODE: mode,
@@ -41,6 +41,17 @@ function setupTestPipeline(
 
   return { pipeline, store, julesClient, aiProvider };
 }
+
+it("DISABLED performs no AI invocation or persistence even for an actionable activity", async () => {
+  const { pipeline, store, aiProvider, julesClient } = setupTestPipeline("DISABLED");
+  const decide = vi.spyOn(aiProvider, "decide");
+  const session = createMockSession({ state: "AWAITING_USER_INPUT" });
+  const activity = createMockActivity({ sessionId: session.id, type: "AGENT_MESSAGE" });
+  expect(await pipeline.processActivity({ session, activity })).toBeNull();
+  expect(decide).not.toHaveBeenCalled();
+  expect(store.sessions.size).toBe(0);
+  expect(julesClient.sentMessages).toHaveLength(0);
+});
 
 /**
  * P1 memory adversarial setup: a pipeline wired with a MemoryContextService

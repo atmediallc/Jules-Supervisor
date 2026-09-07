@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getConfig } from "@jules/config";
-import { validateProviderUrl } from "@jules/ai";
+import { validateProviderUrlWithDns } from "@jules/ai";
+import { z } from "zod";
 
 /**
  * GET /api/settings/models — List available models from the configured AI provider.
@@ -18,13 +19,16 @@ import { validateProviderUrl } from "@jules/ai";
 export const dynamic = "force-dynamic";
 
 const timeoutMs = 8000;
+const ModelsResponseSchema = z.object({
+  data: z.array(z.object({ id: z.string().min(1).max(512) })).max(10_000),
+});
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     // Defense-in-depth: binary auth gate (same pattern as all other API routes).
     // This route is behind withAuth middleware, but the in-route check guards
     // against middleware misconfiguration.
-    const token = await getToken({ req } as never);
+    const token = await getToken({ req });
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -41,7 +45,7 @@ export async function GET(req: Request) {
     const apiKey = config.AI_API_KEY;
 
     // Guard against SSRF to internal/private endpoints the operator didn't trust.
-    const guard = validateProviderUrl(baseUrl, {
+    const guard = await validateProviderUrlWithDns(baseUrl, {
       allowInsecureLocal: config.ALLOW_INSECURE_LOCAL_ENDPOINTS,
       trustedInternalHosts: config.TRUSTED_INTERNAL_AI_HOSTS,
     });
@@ -63,16 +67,17 @@ export async function GET(req: Request) {
         },
         signal: controller.signal,
         cache: "no-store",
+        // A public endpoint must not redirect an authenticated server request
+        // into a private address that bypasses the original SSRF validation.
+        redirect: "error",
       });
 
       if (!res.ok) {
         return NextResponse.json({ models: [] });
       }
 
-      const data = (await res.json()) as { data?: { id: string }[] };
-      const models = (data.data ?? [])
-        .map((m) => m.id)
-        .filter((id): id is string => Boolean(id));
+      const data = ModelsResponseSchema.parse(await res.json());
+      const models = data.data.map((model) => model.id);
       return NextResponse.json({ models });
     } finally {
       clearTimeout(timer);

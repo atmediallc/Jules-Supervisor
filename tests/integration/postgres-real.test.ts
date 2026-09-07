@@ -7,7 +7,6 @@ import {
   DecisionRepository,
   ApprovalRepository,
   AuditRepository,
-  BudgetRepository,
   runInTransaction,
   sql,
 } from "@jules/db";
@@ -433,7 +432,6 @@ describe("Real PostgreSQL 16 & Drizzle Schema Integration", () => {
       runInTransaction(db, async (tx) => {
         const txDecision = new DecisionRepository(tx);
         const txAudit = new AuditRepository(tx);
-        const txBudget = new BudgetRepository(tx);
         await txDecision.create({
           id: decisionId,
           sessionId,

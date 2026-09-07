@@ -38,6 +38,31 @@ export default function middleware(
 
   // General API rate limit (everything except NextAuth internals).
   if (path.startsWith("/api/") && !path.startsWith("/api/auth")) {
+    // NextAuth protects its own endpoints. Cookie-authenticated application
+    // mutations also need an origin/content-type boundary: req.json() alone
+    // accepts JSON sent as text/plain by a cross-origin HTML form.
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+      const origin = req.headers.get("origin");
+      let expectedOrigin: string;
+      try {
+        expectedOrigin = new URL(process.env.NEXTAUTH_URL ?? req.url).origin;
+      } catch {
+        return NextResponse.json({ error: "Invalid application origin configuration" }, { status: 503 });
+      }
+      if (
+        req.headers.get("sec-fetch-site") === "cross-site" ||
+        (origin !== null && origin !== expectedOrigin)
+      ) {
+        return NextResponse.json({ error: "Cross-origin mutation refused" }, { status: 403 });
+      }
+      if (
+        req.method !== "DELETE" &&
+        req.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json"
+      ) {
+        return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 415 });
+      }
+    }
+
     if (isRateLimited(rateLimitKey("api", ip), "api")) {
       return NextResponse.json(
         { error: "Too many requests" },

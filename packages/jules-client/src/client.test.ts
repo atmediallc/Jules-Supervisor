@@ -1,5 +1,37 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MockJulesClient } from "./mock.js";
+import { JulesApiClient } from "./client.js";
+
+describe("Jules HTTP retry safety", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each([429, 502, 503, 504])("does not retry a mutation after HTTP %s", async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("upstream failure", { status }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new JulesApiClient({ apiKey: "fixture", maxRetries: 3 });
+    await expect(client.sendMessage("session", { message: "hello", clientToken: "same-token" }))
+      .rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry an approval after an ambiguous timeout", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new DOMException("timeout", "AbortError"));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new JulesApiClient({ apiKey: "fixture", maxRetries: 3 });
+    await expect(client.approvePlan("session", { approved: true })).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains bounded retries for read-only requests", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
+      .mockResolvedValueOnce(Response.json({ sessions: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new JulesApiClient({ apiKey: "fixture", maxRetries: 1 });
+    await expect(client.listSessions()).resolves.toEqual({ sessions: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe("MockJulesClient contract tests", () => {
   it("lists sessions and seeded activities", async () => {

@@ -186,9 +186,9 @@ function maxSimilarityToSelected(
 
 export class MemoryRecallEngine {
   constructor(
-    private readonly repo: AiMemoryRepository,
+    private readonly repo: Pick<AiMemoryRepository, "findById" | "recordInfluence" | "markAccessed">,
     private readonly embeddingProvider: IEmbeddingProvider,
-    private readonly semanticStore: IQdrantSemanticStore | null,
+    private readonly semanticStore: Pick<IQdrantSemanticStore, "search"> | null,
     private readonly config: RecallConfig,
   ) {}
 
@@ -237,8 +237,14 @@ export class MemoryRecallEngine {
         if (!memory) continue;
         // Cross-tenant / cross-project guard on the canonical record.
         if (memory.tenantId !== request.tenantId) continue;
+        if (memory.projectId !== request.projectId) continue;
         if (memory.repositoryId !== request.repositoryId) continue;
         if (memory.status !== "active") continue;
+        const now = Date.now();
+        if (memory.validFrom.getTime() > now) continue;
+        if (memory.validUntil && memory.validUntil.getTime() <= now) continue;
+        if (memory.expiresAt && memory.expiresAt.getTime() <= now) continue;
+        if (memory.supersededBy) continue;
         memories.push({ hit, memory: memory as unknown as AiMemory });
       }
 

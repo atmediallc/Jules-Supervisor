@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { z } from "zod";
-import { getConfig } from "@jules/config";
+import { EnvSchema, getConfig } from "@jules/config";
 import { AuditRepository, getDatabase, runInTransaction, SystemSettingsRepository } from "@jules/db";
 import { generateId } from "@jules/shared";
 import { logRouteError } from "../route-logger";
@@ -261,7 +261,7 @@ function validateUpdatePayload(
   const updates: ValidatedUpdate[] = [];
   for (const item of items) {
     const catalog = SETTINGS_CATALOG[item.key];
-    if (!catalog) {
+    if (!Object.hasOwn(SETTINGS_CATALOG, item.key) || !catalog) {
       return {
         ok: false,
         response: NextResponse.json(
@@ -277,6 +277,15 @@ function validateUpdatePayload(
           { error: `Cannot set secret ${item.key} to empty string` },
           { status: 400 },
         ),
+      };
+    }
+    // Reuse the worker's runtime contract before persisting an override that
+    // could otherwise prevent startup. Never echo the submitted value.
+    const schema = Object.entries(EnvSchema.shape).find(([key]) => key === item.key)?.[1];
+    if (schema && !schema.safeParse(item.value).success) {
+      return {
+        ok: false,
+        response: NextResponse.json({ error: `Invalid value for setting ${item.key}` }, { status: 400 }),
       };
     }
     updates.push({
@@ -339,7 +348,7 @@ function buildSettingItem(
   return {
     key,
     value: catalog.isSecret ? maskValue(rawValue) : rawValue,
-    rawValue,
+    rawValue: catalog.isSecret ? null : rawValue,
     category: catalog.category,
     isSecret: catalog.isSecret,
     description: catalog.description,
@@ -472,7 +481,7 @@ export async function DELETE(req: NextRequest) {
     const actor = (token?.name as string | undefined) ?? "authenticated-operator";
 
     const key = req.nextUrl.searchParams.get("key");
-    if (!key || !(key in SETTINGS_CATALOG)) {
+    if (!key || !Object.hasOwn(SETTINGS_CATALOG, key)) {
       return NextResponse.json({ error: "Unknown setting key" }, { status: 400 });
     }
 

@@ -2,7 +2,7 @@
 
 > **Autonomous, Policy-Controlled AI Orchestration & Supervision Platform for Google Jules**
 
-Jules Supervisor is an enterprise-grade control plane that continuously observes, analyzes, governs, and responds to Google Jules coding sessions through official Google Jules APIs and an OpenAI-compatible AI provider (any compatible endpoint, e.g. OpenAI or a self-hosted gateway; single provider, no router/failover yet).
+Jules Supervisor is a control plane for observing, analyzing, and governing Google Jules coding sessions, with an OpenAI-compatible primary provider and configurable ordered fallbacks. The current live Jules adapter has unresolved contract mismatches; see the [independent audit and release restrictions](docs/INDEPENDENT-AUDIT-2026-09-07.md) before enabling autonomous execution.
 
 ---
 
@@ -12,8 +12,8 @@ Jules Supervisor is an enterprise-grade control plane that continuously observes
 - **Strict Execution Modes**: `DISABLED`, `DRY_RUN` (Default safe mode), `ASSISTED` (Human review), `AUTO_RESPOND` (Low-risk auto-replies), and `FULL_AUTO`.
 - **Deterministic Policy & Risk Engine**: Hard safety veto rules that unconditionally override AI model output for destructive SQL, sensitive file paths, credential tampering, and recursion loops.
 - **Prompt Injection Defense**: Repository and agent inputs are tagged as untrusted data (`<untrusted_context>`), isolated from system directives, and audited.
-- **Idempotency & Concurrency Gate**: Deterministic SHA-256 idempotency keys and distributed locking prevent duplicate API actions or race conditions across multiple workers.
-- **Modern Next.js Control Plane Dashboard**: KPI metrics, interactive Human Approval Queue with double-submission protection, session explorer, and decision auditing. Note: sessions/approvals/decisions/audit/policies pages render mock data today; only Settings is live. SSE endpoint emits heartbeats only (live event feed is a roadmap item).
+- **Idempotency & Concurrency Gate**: Deterministic SHA-256 decision keys and distributed locks reduce duplicate processing. Jules mutation idempotency is not guaranteed: automatic HTTP retries are limited to reads, and stale execution attempts are escalated for operator verification without replay.
+- **Next.js Control Plane Dashboard**: Database-backed session, approval, decision, audit, policy, and settings views. Human verdict persistence exists; dispatch of approved actions remains incomplete. The SSE endpoint emits heartbeats only.
 - **Production-Ready Persistence & Queues**: PostgreSQL (Drizzle ORM), BullMQ worker queue with Redis coordination, and standalone in-memory fallbacks for offline testing.
 - **Docker & NAS Ready**: Multi-stage lightweight Dockerfiles, Docker Compose stack, and dedicated Synology/TrueNAS runbooks.
 
@@ -54,7 +54,7 @@ pnpm install
 npx vitest run
 
 # Run TypeScript compile & strict typechecks
-npx tsc --build
+pnpm typecheck
 
 # Start Web Control Plane in dev mode
 pnpm --filter @jules/web dev

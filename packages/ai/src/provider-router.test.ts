@@ -94,6 +94,28 @@ async function expectFail(router: DefaultProviderRouter) {
 }
 
 describe("ProviderRouter failover matrix", () => {
+  it("does not call providers when the caller already cancelled", async () => {
+    const primary = new FakeProvider("primary");
+    const router = new DefaultProviderRouter({ providers: [entry(primary)] });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(router.decide(context, controller.signal)).rejects.toThrow();
+    expect(primary.calls).toBe(0);
+  });
+
+  it("does not retry or fall back after the overall deadline", async () => {
+    const primary = new FakeProvider("primary", "hang");
+    const fallback = new FakeProvider("fallback");
+    const router = new DefaultProviderRouter({
+      providers: [entry(primary), entry(fallback)],
+      maxRetries: 3,
+      totalTimeoutMs: 10,
+    });
+    await expect(router.decide(context)).rejects.toThrow();
+    expect(primary.calls).toBe(1);
+    expect(fallback.calls).toBe(0);
+  });
+
   it("primary success returns the decision with attempt attribution", async () => {
     const primary = new FakeProvider("primary");
     const router = new DefaultProviderRouter({ providers: [entry(primary)], maxRetries: 0 });

@@ -148,6 +148,7 @@ export class SupervisionPipeline {
   public async processActivity(
     input: ProcessActivityInput,
   ): Promise<PipelineExecutionResult | null> {
+    if (this.config.SUPERVISOR_MODE === "DISABLED") return null;
     const { session, activity } = input;
 
     // We only trigger AI decision evaluation if session is awaiting user input or plan approval
@@ -600,9 +601,8 @@ export class SupervisionPipeline {
       if (gate.autoExecuted && hasExecutablePayload) {
         // H3: durable execution attempt. Insert + claim the attempt BEFORE any
         // external mutation so a crash mid-effect leaves a recoverable record.
-        // The SAME idempotencyKey (clientToken) is reused on every retry of this
-        // attempt; the Jules API is idempotent by clientToken, so a reconciler
-        // re-driving with the same token cannot double-apply the effect.
+        // The clientToken is local correlation only: Jules does not document
+        // deduplication. Recovery escalates uncertain effects without replay.
         let attemptId: string | null = null;
         try {
           const priorAttempts = await this.executionAttemptRepo.listByDecision(canonicalDecisionId);

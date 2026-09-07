@@ -187,7 +187,8 @@ export function CredentialsPanel() {
           <button
             onClick={generate}
             title={t("generate")}
-            className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+            aria-label={t("generate")}
+            className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
@@ -195,7 +196,8 @@ export function CredentialsPanel() {
             onClick={copy}
             disabled={!draft}
             title={t("copy")}
-            className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors disabled:opacity-40"
+            aria-label={t("copy")}
+            className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors disabled:opacity-40 cursor-pointer"
           >
             {copied ? (
               <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -207,7 +209,7 @@ export function CredentialsPanel() {
         <button
           onClick={save}
           disabled={!draft || saving}
-          className="w-full py-1 rounded text-[11px] font-semibold bg-emerald-900/60 hover:bg-emerald-800/60 text-emerald-300 border border-emerald-800/60 transition-colors disabled:opacity-40"
+          className="w-full py-1.5 rounded text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-40 shadow-sm cursor-pointer"
         >
           {saving ? t("saving") : saved ? t("saved") : t("save_as_admin")}
         </button>

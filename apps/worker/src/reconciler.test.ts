@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EnvSchema } from "@jules/config";
 import { MockJulesClient } from "@jules/jules-client";
 import {
@@ -78,7 +78,7 @@ async function seedStaleAttempt(
     createdAt: new Date(),
   } as never);
 
-  const clientToken = opts.clientToken ?? `tok-${Math.random().toString(36).slice(2)}`;
+  const clientToken = opts.clientToken === undefined ? `tok-${Math.random().toString(36).slice(2)}` : opts.clientToken;
   await repos.decisionRepo.create({
     id: decisionId,
     sessionId,
@@ -126,7 +126,7 @@ async function attemptsFor(store: InMemoryRepositoryStore, decisionId: string) {
 }
 
 describe("ExecutionReconciler — H3 durable execution fault injection", () => {
-  it("recovers a stale EXECUTING attempt and re-drives with the SAME clientToken", async () => {
+  it("recovers a stale EXECUTING attempt for review without replaying its token", async () => {
     const { reconciler, store, repos, julesClient } = setupReconciler();
     const { decisionId, clientToken } = await seedStaleAttempt(store, repos, { status: "EXECUTING" });
 
@@ -134,12 +134,15 @@ describe("ExecutionReconciler — H3 durable execution fault injection", () => {
 
     expect(result.scanned).toBe(1);
     expect(result.recovered).toBe(1);
-    expect(result.reDriven).toBe(1);
-    expect(result.succeeded).toBe(1);
-    // The re-drive used the same idempotent clientToken (never a fresh token).
-    expect(julesClient.sentMessages.length).toBe(1);
-    expect(julesClient.sentMessages[0].request.clientToken).toBe(clientToken);
-    // The effect was marked executed on the decision.
+    expect(result.reDriven).toBe(0);
+    expect(result.succeeded).toBe(0);
+    expect(result.escalated).toBe(1);
+    expect(julesClient.sentMessages.length).toBe(0);
+    const attempts = await attemptsFor(store, decisionId);
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]?.clientToken).toBe(clientToken);
+    expect(attempts[0]?.status).toBe("NEEDS_RECONCILIATION");
+    // A previously recorded success is never overwritten by recovery.
     const dec = await decisionById(store, decisionId);
     expect(dec?.executionState).toBe("EXECUTED");
   });
@@ -163,19 +166,20 @@ describe("ExecutionReconciler — H3 durable execution fault injection", () => {
     const { id, decisionId, clientToken } = await seedStaleAttempt(store, repos, { status: "EXECUTING" });
 
     await reconciler.reconcileOnce();
-    expect(julesClient.sentMessages.length).toBe(1);
+    expect(julesClient.sentMessages.length).toBe(0);
 
     // Second pass — the recovered attempt is SUCCEEDED, no longer stale.
     const result2 = await reconciler.reconcileOnce();
     expect(result2.scanned).toBe(0);
     // The effect was applied exactly once.
-    expect(julesClient.sentMessages.length).toBe(1);
-    expect(julesClient.sentMessages[0].request.clientToken).toBe(clientToken);
+    expect(julesClient.sentMessages.length).toBe(0);
     const attempts = await attemptsFor(store, decisionId);
     expect(attempts.filter((a) => a.id === id).length).toBe(1);
+    expect(attempts[0]?.clientToken).toBe(clientToken);
+    expect(attempts[0]?.status).toBe("NEEDS_RECONCILIATION");
   });
 
-  it("escalates to NEEDS_RECONCILIATION once EXECUTION_MAX_ATTEMPTS is reached (no unbounded retry)", async () => {
+  it("escalates regardless of the previous attempt count (no unbounded retry)", async () => {
     const { reconciler, store, repos } = setupReconciler({ maxAttempts: 2 });
     const { decisionId } = await seedStaleAttempt(store, repos, { status: "EXECUTING", attemptNumber: 2 });
     // Fake that two prior attempts already exist for this decision.
@@ -195,7 +199,7 @@ describe("ExecutionReconciler — H3 durable execution fault injection", () => {
     const attempts = await attemptsFor(store, decisionId);
     const ceiling = attempts.find((a) => a.status === "NEEDS_RECONCILIATION");
     expect(ceiling).toBeDefined();
-    expect(ceiling!.errorMessage).toContain("retry ceiling");
+    expect(ceiling!.errorMessage).toContain("idempotency is not guaranteed");
   });
 
   it("refuses to re-drive when the kill switch is NOT RUNNING and marks NEEDS_RECONCILIATION", async () => {
@@ -233,7 +237,7 @@ describe("ExecutionReconciler — H3 durable execution fault injection", () => {
     expect(after.errorCategory).toBe("PERMANENT");
   });
 
-  it("marks UNKNOWN_EFFECT + decision UNKNOWN_EFFECT when the re-drive throws (ambiguous outcome) and does not retry next pass", async () => {
+  it("does not contact an unavailable provider during recovery or the next pass", async () => {
     const { reconciler, store, repos, julesClient } = setupReconciler({
       julesHooks: {
         shouldFail: (endpoint: string) =>
@@ -242,16 +246,18 @@ describe("ExecutionReconciler — H3 durable execution fault injection", () => {
     });
     const { decisionId } = await seedStaleAttempt(store, repos, { status: "EXECUTING" });
 
+    const send = vi.spyOn(julesClient, "sendMessage");
     const result = await reconciler.reconcileOnce();
 
-    expect(result.reDriven).toBe(1);
+    expect(result.reDriven).toBe(0);
     expect(result.escalated).toBe(1);
+    expect(send).not.toHaveBeenCalled();
     const dec = await decisionById(store, decisionId);
-    expect(dec?.executionState).toBe("UNKNOWN_EFFECT");
+    expect(dec?.executionState).toBe("EXECUTED");
     const attempts = await attemptsFor(store, decisionId);
-    const terminal = attempts.find((a) => a.status === "UNKNOWN_EFFECT");
+    const terminal = attempts.find((a) => a.status === "NEEDS_RECONCILIATION");
     expect(terminal).toBeDefined();
-    expect(terminal!.errorCategory).toBe("AMBIGUOUS");
+    expect(terminal!.errorMessage).toContain("unverified");
 
     // UNKNOWN_EFFECT is terminal — next pass must not re-pick it.
     julesClient.hooks = {};
@@ -271,13 +277,35 @@ describe("ExecutionReconciler — H3 durable execution fault injection", () => {
 
     expect(result.escalated).toBe(1);
     const dec = await decisionById(store, decisionId);
-    expect(dec?.executionState).toBe("UNKNOWN_EFFECT");
-    // The failure happens on the re-created re-drive attempt (newest row);
-    // that row becomes the terminal UNKNOWN_EFFECT state.
+    expect(dec?.executionState).toBe("EXECUTED");
+    // Review the existing attempt without fabricating another external call.
     const attempts = await attemptsFor(store, decisionId);
-    const unknown = attempts.find((a) => a.status === "UNKNOWN_EFFECT");
+    expect(attempts).toHaveLength(1);
+    const unknown = attempts.find((a) => a.status === "NEEDS_RECONCILIATION");
     expect(unknown).toBeDefined();
-    expect(unknown!.id).not.toBe(id);
+    expect(unknown!.id).toBe(id);
+  });
+
+  it.each(["RESPOND", "APPROVE_PLAN", "REQUEST_CHANGES", "BLOCK"])(
+    "never replays %s even with a missing correlation token",
+    async (action) => {
+      const { reconciler, store, repos, julesClient } = setupReconciler();
+      const { id } = await seedStaleAttempt(store, repos, { action, clientToken: null });
+      const result = await reconciler.reconcileOnce();
+      expect(result.escalated).toBe(1);
+      expect(julesClient.sentMessages).toHaveLength(0);
+      expect(julesClient.approvedPlans).toHaveLength(0);
+      expect(store.executionAttempts.get(id)?.status).toBe("NEEDS_RECONCILIATION");
+    },
+  );
+
+  it("claims a stale attempt only once across overlapping passes", async () => {
+    const { reconciler, store, repos, julesClient } = setupReconciler();
+    await seedStaleAttempt(store, repos);
+    const results = await Promise.all([reconciler.reconcileOnce(), reconciler.reconcileOnce()]);
+    expect(results.reduce((sum, result) => sum + result.recovered, 0)).toBe(1);
+    expect(julesClient.sentMessages).toHaveLength(0);
+    expect(store.executionAttempts.size).toBe(1);
   });
 });
 

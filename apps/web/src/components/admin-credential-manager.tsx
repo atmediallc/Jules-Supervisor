@@ -182,7 +182,7 @@ export default function AdminCredentialManager() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-white">{t("title")}</span>
+              <span className="text-sm font-bold text-slate-100">{t("title")}</span>
               {configured ? (
                 <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 border border-emerald-800/70 font-mono text-[10px] font-semibold tracking-wide">
                   <span className="relative flex h-1.5 w-1.5">

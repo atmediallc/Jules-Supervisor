@@ -21,43 +21,59 @@ export default async function DashboardPage() {
   const db = getDatabase(config.DATABASE_URL);
   const sessionsRepo = new SessionRepository(db);
 
-  const allSessions = await sessionsRepo.list(500);
-  const activeCount = allSessions.filter(
-    (s) => !["COMPLETED", "CANCELLED", "FAILED"].includes(s.state),
-  ).length;
-  const [pendingCount, todayCount, autoCount, blockedCount, avgRow] = await Promise.all([
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(approvalRequests)
-      .where(sql`status = 'PENDING'`),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(decisions)
-      .where(sql`created_at >= now() - interval '24 hours'`),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(decisions)
-      .where(sql`execution_state = 'EXECUTED'`),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(decisions)
-      .where(sql`execution_state = 'BLOCKED'`),
-    db
-      .select({ avg: sql<number>`coalesce(avg(ai_latency_ms), 0)::int` })
-      .from(decisions)
-      .where(sql`created_at >= now() - interval '24 hours'`),
-  ]);
-
-  const stats = {
-    activeSessions: activeCount,
-    awaitingFeedback: allSessions.filter((s) => s.state === "AWAITING_USER_INPUT").length,
-    awaitingPlanApproval: allSessions.filter((s) => s.state === "AWAITING_PLAN_APPROVAL").length,
-    pendingHumanReviews: pendingCount[0]?.count ?? 0,
-    decisionsToday: todayCount[0]?.count ?? 0,
-    autoExecuted: autoCount[0]?.count ?? 0,
-    blockedDecisions: blockedCount[0]?.count ?? 0,
-    avgLatencyMs: avgRow[0]?.avg ?? 0,
+  let allSessions: Awaited<ReturnType<typeof sessionsRepo.list>> = [];
+  let stats = {
+    activeSessions: 0,
+    awaitingFeedback: 0,
+    awaitingPlanApproval: 0,
+    pendingHumanReviews: 0,
+    decisionsToday: 0,
+    autoExecuted: 0,
+    blockedDecisions: 0,
+    avgLatencyMs: 0,
   };
+
+  try {
+    allSessions = await sessionsRepo.list(500);
+    const activeCount = allSessions.filter(
+      (s) => !["COMPLETED", "CANCELLED", "FAILED"].includes(s.state),
+    ).length;
+    const [pendingCount, todayCount, autoCount, blockedCount, avgRow] = await Promise.all([
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(approvalRequests)
+        .where(sql`status = 'PENDING'`),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(decisions)
+        .where(sql`created_at >= now() - interval '24 hours'`),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(decisions)
+        .where(sql`execution_state = 'EXECUTED'`),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(decisions)
+        .where(sql`execution_state = 'BLOCKED'`),
+      db
+        .select({ avg: sql<number>`coalesce(avg(ai_latency_ms), 0)::int` })
+        .from(decisions)
+        .where(sql`created_at >= now() - interval '24 hours'`),
+    ]);
+
+    stats = {
+      activeSessions: activeCount,
+      awaitingFeedback: allSessions.filter((s) => s.state === "AWAITING_USER_INPUT").length,
+      awaitingPlanApproval: allSessions.filter((s) => s.state === "AWAITING_PLAN_APPROVAL").length,
+      pendingHumanReviews: pendingCount[0]?.count ?? 0,
+      decisionsToday: todayCount[0]?.count ?? 0,
+      autoExecuted: autoCount[0]?.count ?? 0,
+      blockedDecisions: blockedCount[0]?.count ?? 0,
+      avgLatencyMs: avgRow[0]?.avg ?? 0,
+    };
+  } catch (err) {
+    console.warn("Database unavailable, rendering overview with fallback empty state:", err);
+  }
 
   return (
     <div className="space-y-8">
@@ -65,9 +81,9 @@ export default async function DashboardPage() {
       <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-panel via-abyss-soft to-abyss p-6">
         <div className="absolute -top-16 -right-16 w-56 h-56 bg-jules-600/10 blur-3xl rounded-full" />
         <div className="absolute -bottom-20 left-1/3 w-48 h-48 bg-cyber-500/5 blur-3xl rounded-full" />
-        <div className="relative flex items-center justify-between">
+        <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-white">
+            <h2 className="text-2xl font-bold tracking-tight text-slate-100">
               {t("title")}{" "}
               <span className="bg-gradient-to-r from-jules-400 to-cyber-300 bg-clip-text text-transparent">
                 ▸
@@ -77,10 +93,10 @@ export default async function DashboardPage() {
               {t("description")}
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <Link
               href="/approvals"
-              className="flex items-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-colors"
+              className="flex items-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 dark:text-amber-300 border border-amber-500/30 px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-colors"
             >
               <AlertTriangle className="w-4 h-4" />
               {t("pending_approvals", { count: String(stats.pendingHumanReviews) })}
@@ -97,14 +113,14 @@ export default async function DashboardPage() {
       </div>
 
       {/* KPI Metric Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="relative overflow-hidden p-5 bg-gradient-to-br from-panel to-abyss-soft rounded-2xl border border-white/10 space-y-2 group hover:border-jules-500/30 transition-colors">
           <div className="absolute -top-8 -right-8 w-24 h-24 bg-jules-500/10 blur-2xl rounded-full" />
           <div className="relative flex items-center justify-between text-xs text-slate-400 font-medium">
             <span>{t("active_jules_sessions")}</span>
             <Activity className="w-4 h-4 text-jules-400" />
           </div>
-          <div className="relative text-3xl font-bold text-white font-mono">{formatNumber(locale, stats.activeSessions)}</div>
+          <div className="relative text-3xl font-bold text-slate-100 font-mono">{formatNumber(locale, stats.activeSessions)}</div>
           <div className="relative text-xs text-slate-400">
             <span className="text-amber-400 font-medium">{formatNumber(locale, stats.awaitingFeedback)}</span> {t("awaiting_feedback", { count: String(stats.awaitingFeedback) })}
           </div>
@@ -128,7 +144,7 @@ export default async function DashboardPage() {
             <span>{t("decisions_today")}</span>
             <Cpu className="w-4 h-4 text-emerald-400" />
           </div>
-          <div className="relative text-3xl font-bold text-white font-mono">{formatNumber(locale, stats.decisionsToday)}</div>
+          <div className="relative text-3xl font-bold text-slate-100 font-mono">{formatNumber(locale, stats.decisionsToday)}</div>
           <div className="relative text-xs text-slate-400">
             <span className="text-emerald-400 font-medium">{formatNumber(locale, stats.autoExecuted)}</span> {t("auto_executed", { count: String(stats.autoExecuted) })}
           </div>
@@ -140,7 +156,7 @@ export default async function DashboardPage() {
             <span>{t("avg_decision_latency")}</span>
             <Clock className="w-4 h-4 text-cyber-400" />
           </div>
-          <div className="relative text-3xl font-bold text-white font-mono">{stats.avgLatencyMs}ms</div>
+          <div className="relative text-3xl font-bold text-slate-100 font-mono">{stats.avgLatencyMs}ms</div>
           <div className="relative text-xs text-slate-400">{t("including_context_inference")}</div>
         </div>
       </div>
@@ -151,7 +167,7 @@ export default async function DashboardPage() {
         <div className="relative lg:col-span-2 overflow-hidden p-6 bg-gradient-to-br from-panel to-abyss-soft rounded-2xl border border-white/10 space-y-4">
           <div className="absolute inset-0 grid-overlay opacity-40 pointer-events-none" />
           <div className="relative flex items-center justify-between">
-            <h3 className="text-base font-semibold text-white">{t("active_sessions_list")}</h3>
+            <h3 className="text-base font-semibold text-slate-100">{t("active_sessions_list")}</h3>
             <span className="text-xs text-cyber-300 font-mono flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-cyber-400 animate-pulse" />
               {tCommon("live")}
@@ -177,7 +193,7 @@ export default async function DashboardPage() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-xs text-jules-300">{s.id}</span>
-                        <span className="text-xs font-semibold text-white">
+                        <span className="text-xs font-semibold text-slate-100">
                           {s.repository} ({s.branch})
                         </span>
                         <span className={`px-2 py-0.5 text-[10px] font-mono rounded border ${stateColor}`}>
@@ -188,7 +204,7 @@ export default async function DashboardPage() {
                     </div>
                     <Link
                       href="/sessions"
-                      className="text-xs text-jules-300 hover:text-jules-200 font-medium px-3 py-1.5 rounded bg-abyss border border-white/10"
+                      className="text-xs text-jules-600 dark:text-jules-300 hover:text-jules-500 font-medium px-3 py-1.5 rounded bg-abyss border border-white/10"
                     >
                       {tCommon("inspect")}
                     </Link>
@@ -206,7 +222,7 @@ export default async function DashboardPage() {
         <div className="relative overflow-hidden p-6 bg-gradient-to-br from-panel to-abyss-soft rounded-2xl border border-white/10 space-y-4">
           <div className="absolute -top-10 -right-10 w-32 h-32 bg-rose-500/5 blur-3xl rounded-full" />
           <div className="relative flex items-center justify-between">
-            <h3 className="text-base font-semibold text-white">{t("policy_risk_status")}</h3>
+            <h3 className="text-base font-semibold text-slate-100">{t("policy_risk_status")}</h3>
             <ShieldCheck className="w-4 h-4 text-jules-400" />
           </div>
 
@@ -230,16 +246,21 @@ export default async function DashboardPage() {
 }
 
 async function RiskStat({ label, risk, db }: { label: string; risk: string; db: ReturnType<typeof getDatabase> }) {
-  const row = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(decisions)
-    .where(sql`risk = ${risk}`);
-  const count = row[0]?.count ?? 0;
+  let count = 0;
+  try {
+    const row = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(decisions)
+      .where(sql`risk = ${risk}`);
+    count = row[0]?.count ?? 0;
+  } catch {
+    count = 0;
+  }
   const color = risk === "low" ? "text-emerald-400" : risk === "medium" ? "text-amber-400" : risk === "high" ? "text-rose-400" : "text-red-500";
   return (
     <div className="p-3 bg-abyss/70 rounded-lg border border-white/5 flex items-center justify-between">
       <span className={color}>{label}</span>
-      <span className="text-white font-bold">{count}</span>
+      <span className="text-slate-100 font-bold">{count}</span>
     </div>
   );
 }

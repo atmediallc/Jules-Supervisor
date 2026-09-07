@@ -7,36 +7,48 @@ export const dynamic = "force-dynamic";
 export default async function PoliciesPage() {
   const t = await getTranslations("policies");
   const config = getConfig();
-  const db = getDatabase(config.DATABASE_URL);
-  const rows = await db
-    .select({
-      id: policies.id,
-      name: policies.name,
-      version: policies.version,
-      description: policies.description,
-      rules: policies.rules,
-      enabled: policies.enabled,
-    })
-    .from(policies)
-    .orderBy(sql`name asc`);
+  let policyRules: Array<{
+    name: string;
+    type: string;
+    status: string;
+    description: string;
+    target: string;
+  }> = [];
 
-  const policyRules = rows.map((p) => {
-    const rules = (p.rules ?? {}) as Record<string, unknown>;
-    return {
-      name: p.name,
-      type: (rules.ruleType as string) ?? "POLICY",
-      status: p.enabled ? "ACTIVE" : "DISABLED",
-      description: p.description ?? "",
-      target: (rules.target as string) ?? `v${p.version}`,
-    };
-  });
+  try {
+    const db = getDatabase(config.DATABASE_URL);
+    const rows = await db
+      .select({
+        id: policies.id,
+        name: policies.name,
+        version: policies.version,
+        description: policies.description,
+        rules: policies.rules,
+        enabled: policies.enabled,
+      })
+      .from(policies)
+      .orderBy(sql`name asc`);
+
+    policyRules = rows.map((p) => {
+      const rules = (p.rules ?? {}) as Record<string, unknown>;
+      return {
+        name: p.name,
+        type: (rules.ruleType as string) ?? "POLICY",
+        status: p.enabled ? "ACTIVE" : "DISABLED",
+        description: p.description ?? "",
+        target: (rules.target as string) ?? `v${p.version}`,
+      };
+    });
+  } catch (err) {
+    console.warn("Database unavailable, rendering policies with fallback empty list:", err);
+  }
 
   return (
     <div className="space-y-6">
       <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-panel via-abyss-soft to-abyss p-6">
         <div className="absolute -top-16 -right-16 w-56 h-56 bg-cyber-600/10 blur-3xl rounded-full" />
         <div className="relative">
-          <h2 className="text-2xl font-bold tracking-tight text-white">{t("title")}</h2>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-100">{t("title")}</h2>
           <p className="text-sm text-slate-400 mt-1">
             {t("description")}
           </p>
@@ -51,7 +63,7 @@ export default async function PoliciesPage() {
           >
             <div className="absolute -top-8 -right-8 w-24 h-24 bg-cyber-500/5 blur-2xl rounded-full" />
             <div className="relative flex items-center justify-between">
-              <span className="text-sm font-semibold text-white">{rule.name}</span>
+              <span className="text-sm font-semibold text-slate-100">{rule.name}</span>
               <span
                 className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
                   rule.type === "HARD_VETO"

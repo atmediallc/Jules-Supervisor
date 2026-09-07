@@ -36,17 +36,17 @@ export default async function MemoryDetailPage({
     <div className="space-y-6">
       <Link
         href="/memories"
-        className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+        className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-slate-100 transition-colors"
       >
         <ArrowLeft className="w-4 h-4" /> {tCommon("back_to_memory_center")}
       </Link>
 
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-white">{memory.title}</h2>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-100">{memory.title}</h2>
           <p className="text-xs text-jules-300/80 font-mono mt-1">{memory.id}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {memory.status !== "active" && (
             <form
               action={async () => {
@@ -60,7 +60,7 @@ export default async function MemoryDetailPage({
             >
               <button
                 type="submit"
-                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-800 text-emerald-400 hover:bg-emerald-950/40 text-sm font-medium transition-colors"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-800 text-emerald-400 hover:bg-emerald-950/40 text-sm font-medium transition-colors cursor-pointer"
               >
                 <RotateCcw className="w-4 h-4" /> {t("reactivate")}
               </button>
@@ -78,7 +78,7 @@ export default async function MemoryDetailPage({
           >
             <button
               type="submit"
-              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10 text-slate-200 hover:bg-panel text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10 text-slate-100 hover:bg-panel text-sm font-medium transition-colors cursor-pointer"
             >
               <CheckCircle2 className="w-4 h-4" /> {t("mark_validated")}
             </button>
@@ -96,7 +96,7 @@ export default async function MemoryDetailPage({
             >
               <button
                 type="submit"
-                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-rose-800 text-rose-400 hover:bg-rose-950/40 text-sm font-medium transition-colors"
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-rose-800 text-rose-400 hover:bg-rose-950/40 text-sm font-medium transition-colors cursor-pointer"
               >
                 <Archive className="w-4 h-4" /> {t("archive")}
               </button>
@@ -106,14 +106,14 @@ export default async function MemoryDetailPage({
       </div>
 
       {/* Core content */}
-      <div className="grid grid-cols-3 gap-6">
-        <div className="col-span-2 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="col-span-1 lg:col-span-2 space-y-6">
           <div className="relative overflow-hidden p-6 bg-gradient-to-br from-panel to-abyss-soft rounded-2xl border border-white/10">
             <div className="absolute -top-10 -right-10 w-32 h-32 bg-violet-600/5 blur-3xl rounded-full" />
-            <div className="relative text-xs uppercase tracking-wider text-slate-500 mb-3">
+            <div className="relative text-xs uppercase tracking-wider text-slate-400 mb-3">
               {t("canonical_content")}
             </div>
-            <pre className="relative whitespace-pre-wrap font-sans text-sm text-slate-200 leading-relaxed">
+            <pre className="relative whitespace-pre-wrap font-sans text-sm text-slate-100 leading-relaxed">
               {memory.canonicalContent}
             </pre>
           </div>

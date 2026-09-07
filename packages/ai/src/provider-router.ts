@@ -117,6 +117,7 @@ export class DefaultProviderRouter implements ProviderRouter {
     context: BuiltContext,
     signal?: AbortSignal,
   ): Promise<RoutedDecisionResponse> {
+    signal?.throwIfAborted();
     const requirement: DecisionRequirement = {
       requiresStructuredDecision: true,
       estimatedPromptTokens: context.estimatedTokens ?? 0,
@@ -188,9 +189,11 @@ export class DefaultProviderRouter implements ProviderRouter {
       // Bounded retries per this provider (retryable failures only).
       const maxAttempts = 1 + this.maxRetries;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        signal.throwIfAborted();
         const attemptStart = Date.now();
         try {
           const response = await entry.provider.decide(context, signal);
+          signal.throwIfAborted();
           // Structural contract check on a REAL provider's output.
           assertStructuredDecision(response.decision);
 
@@ -218,6 +221,9 @@ export class DefaultProviderRouter implements ProviderRouter {
             summary: `Succeeded via ${entry.provider.name} on attempt ${attempt}`,
           };
         } catch (err: unknown) {
+          // Cancellation is not a provider outage and must never trigger
+          // retries, fallback calls, or circuit-breaker penalties.
+          signal.throwIfAborted();
           const failure = classifyProviderFailure(err);
           const latency = Date.now() - attemptStart;
           breaker.onFailure();

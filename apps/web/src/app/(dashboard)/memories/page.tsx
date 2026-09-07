@@ -72,21 +72,26 @@ export default async function MemoriesPage({
     ? (params.status as "active" | "stale" | "superseded" | "archived" | "invalidated" | "expired")
     : undefined;
 
-  const memories = await repo.list({
-    tenantId: "default",
-    repositoryId,
-    memoryType,
-    status,
-    limit: 100,
-  });
+  let memories: Awaited<ReturnType<typeof repo.list>> = [];
+  try {
+    memories = await repo.list({
+      tenantId: "default",
+      repositoryId,
+      memoryType,
+      status,
+      limit: 100,
+    });
+  } catch (err) {
+    console.warn("Database unavailable, rendering memories with fallback empty list:", err);
+  }
 
   return (
     <div className="space-y-6">
       <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-panel via-abyss-soft to-abyss p-6">
         <div className="absolute -top-16 -right-16 w-56 h-56 bg-violet-600/10 blur-3xl rounded-full" />
-        <div className="relative flex items-start justify-between">
+        <div className="relative flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-white">
+            <h2 className="text-2xl font-bold tracking-tight text-slate-100">
               {t("control_title")}
             </h2>
             <p className="text-sm text-slate-400 mt-1">
@@ -99,7 +104,7 @@ export default async function MemoriesPage({
           }}>
             <button
               type="submit"
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-abyss text-slate-200 hover:bg-panel text-sm font-medium border border-white/10 transition-colors"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-abyss text-slate-100 hover:bg-panel text-sm font-medium border border-white/10 transition-colors cursor-pointer"
             >
               <RefreshCw className="w-4 h-4" /> {tCommon("refresh")}
             </button>
@@ -107,7 +112,7 @@ export default async function MemoriesPage({
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard label={t("total_shown")} value={String(memories.length)} />
         <StatCard
           label={t("active")}
@@ -143,12 +148,12 @@ export default async function MemoriesPage({
                   <div className="flex items-center gap-2 flex-wrap">
                     <TypeBadge type={m.memoryType} />
                     <StatusBadge status={m.status} />
-                    <span className="text-slate-200 font-medium text-sm truncate">
+                    <span className="text-slate-100 font-medium text-sm truncate">
                       {m.title}
                     </span>
                   </div>
                   <p className="text-slate-400 text-xs line-clamp-2">{m.summary}</p>
-                  <div className="text-[10px] text-slate-500 font-mono">
+                  <div className="text-[10px] text-slate-400 font-mono">
                     conf={m.confidence.toFixed(2)} importance={m.importance.toFixed(2)}
                     {" · "}access={formatNumber(locale, m.accessCount)} ✓={formatNumber(locale, m.successfulUseCount)} ✗={formatNumber(locale, m.negativeOutcomeCount)}
                   </div>
@@ -172,8 +177,8 @@ function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="relative overflow-hidden p-4 bg-gradient-to-br from-panel to-abyss-soft rounded-2xl border border-white/10">
       <div className="absolute -top-6 -right-6 w-16 h-16 bg-violet-500/10 blur-2xl rounded-full" />
-      <div className="relative text-[10px] uppercase tracking-wider text-slate-500">{label}</div>
-      <div className="relative text-2xl font-bold text-white mt-1 font-mono">{value}</div>
+      <div className="relative text-[10px] uppercase tracking-wider text-slate-400">{label}</div>
+      <div className="relative text-2xl font-bold text-slate-100 mt-1 font-mono">{value}</div>
     </div>
   );
 }
@@ -229,7 +234,7 @@ function MemoryAction({
       <button
         type="submit"
         title={action === "archive" ? "Archive (remove from recall)" : "Mark validated"}
-        className={`flex items-center justify-center w-9 h-9 rounded-lg border text-slate-300 hover:text-white hover:bg-panel transition-colors ${
+        className={`flex items-center justify-center w-9 h-9 rounded-lg border text-slate-300 hover:text-slate-100 hover:bg-panel transition-colors ${
           action === "archive" ? "border-slate-700" : "border-emerald-800/60 text-emerald-400"
         }`}
       >

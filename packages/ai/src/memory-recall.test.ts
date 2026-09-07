@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AiMemory,
   DEFAULT_RANKING_CONFIG,
@@ -6,7 +6,8 @@ import {
   MemoryRecallRequest,
 } from "@jules/core";
 import { SemanticSearchHit } from "./qdrant-adapter.js";
-import { scoreMemory } from "./memory-recall.js";
+import { MemoryRecallEngine, scoreMemory } from "./memory-recall.js";
+import { NoopEmbeddingProvider } from "./embedding-provider.js";
 
 function makeMemory(overrides: Partial<AiMemory> = {}): AiMemory {
   const now = new Date();
@@ -64,6 +65,53 @@ const request: MemoryRecallRequest = {
 function hit(score: number): SemanticSearchHit {
   return { id: "p1", score, payload: { memoryId: "mem_1" } };
 }
+
+describe("Canonical memory recall boundaries", () => {
+  it.each([
+    { tenantId: "other-tenant" },
+    { projectId: "other-project" },
+    { repositoryId: "other-repository" },
+    { expiresAt: new Date(0) },
+    { validUntil: new Date(0) },
+    { validFrom: new Date(Date.now() + 86_400_000) },
+    { supersededBy: "replacement" },
+    { status: "invalidated" as const },
+  ])("rejects canonical records outside the active scope: %j", async (overrides) => {
+    const repo = {
+      findById: vi.fn().mockResolvedValue(makeMemory(overrides)),
+      recordInfluence: vi.fn(),
+      markAccessed: vi.fn(),
+    };
+    const embeddings = new NoopEmbeddingProvider();
+    vi.spyOn(embeddings, "embed").mockResolvedValue({ vector: [1], dimensions: 1, model: "fixture" });
+    // A stale or poisoned vector index claims that the record is eligible.
+    const index = { search: vi.fn().mockResolvedValue([hit(1)]) };
+    const engine = new MemoryRecallEngine(repo, embeddings, index, {
+      topK: 3, candidateMultiplier: 2, similarityThreshold: 0, tokenBudget: 1000,
+    });
+    const result = await engine.recall(request);
+    expect(result.degraded).toBe(false);
+    expect(result.items).toEqual([]);
+    expect(repo.recordInfluence).not.toHaveBeenCalled();
+  });
+
+  it("recalls a valid record and records its influence", async () => {
+    const repo = {
+      findById: vi.fn().mockResolvedValue(makeMemory()),
+      recordInfluence: vi.fn(),
+      markAccessed: vi.fn(),
+    };
+    const embeddings = new NoopEmbeddingProvider();
+    vi.spyOn(embeddings, "embed").mockResolvedValue({ vector: [1], dimensions: 1, model: "fixture" });
+    const engine = new MemoryRecallEngine(repo, embeddings, { search: vi.fn().mockResolvedValue([hit(1)]) }, {
+      topK: 3, candidateMultiplier: 2, similarityThreshold: 0, tokenBudget: 1000,
+    });
+    const result = await engine.recall(request);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.memory.id).toBe("mem_1");
+    expect(repo.recordInfluence).toHaveBeenCalledOnce();
+  });
+});
 
 describe("scoreMemory", () => {
   it("scores higher for higher semantic similarity", () => {

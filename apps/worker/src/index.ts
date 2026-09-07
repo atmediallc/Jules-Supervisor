@@ -209,8 +209,8 @@ async function main() {
   }
 
   // H3: durable execution reconciler — recovers stranded external effects
-  // (dispatch completed but outcome never recorded) and re-drives them with the
-  // same idempotent clientToken, bounded by EXECUTION_MAX_ATTEMPTS.
+  // (dispatch completed but outcome never recorded) for operator verification.
+  // No automatic replay: Jules does not guarantee mutation idempotency.
   const reconciler = new ExecutionReconciler({
     config,
     julesClient,

@@ -196,20 +196,20 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-panel via-abyss-soft to-abyss p-6">
         <div className="absolute -top-16 -right-16 w-56 h-56 bg-jules-600/10 blur-3xl rounded-full" />
-        <div className="relative flex items-center justify-between">
+        <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-white">
+            <h2 className="text-2xl font-bold tracking-tight text-slate-100">
               {t("title")}
             </h2>
             <p className="text-sm text-slate-400 mt-1">
               {t("description")}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <button
               onClick={fetchSettings}
               disabled={loading}
-              className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-300 bg-abyss hover:bg-panel border border-white/10 rounded-lg transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-300 bg-abyss hover:bg-panel border border-white/10 rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
               {tCommon("refresh")}
@@ -217,7 +217,7 @@ export default function SettingsPage() {
             <button
               onClick={handleSave}
               disabled={saving || changedCount === 0}
-              className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-gradient-to-r from-jules-600 to-cyber-600 hover:from-jules-500 hover:to-cyber-500 rounded-lg transition-all shadow-[0_8px_24px_-8px_rgba(59,130,246,0.8)] disabled:saturate-[0.55] disabled:cursor-not-allowed disabled:shadow-none"
+              className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-gradient-to-r from-jules-600 to-cyber-600 hover:from-jules-500 hover:to-cyber-500 rounded-lg transition-all shadow-[0_8px_24px_-8px_rgba(59,130,246,0.8)] disabled:saturate-[0.55] disabled:cursor-not-allowed disabled:shadow-none cursor-pointer"
             >
               <Save className="w-3.5 h-3.5" />
               {saving ? t("saving") : `${t("save_changes")}${changedCount > 0 ? ` (${changedCount})` : ""}`}
@@ -269,21 +269,21 @@ export default function SettingsPage() {
               {/* Category Header */}
               <button
                 onClick={() => toggleCategory(cat)}
-                className="w-full flex items-center justify-between px-6 py-4 hover:bg-white/[0.03] transition-colors"
+                className="w-full flex items-center justify-between px-6 py-4 hover:bg-white/[0.03] transition-colors cursor-pointer"
               >
                 <div className="flex items-center gap-3">
                   <span className={`p-1.5 rounded-lg bg-abyss border border-white/5 ${meta.color}`}>
                     <Icon className="w-4 h-4" />
                   </span>
-                  <span className="text-sm font-bold text-white">{t(`categories.${cat}`)}</span>
-                  <span className="text-[10px] text-slate-500 font-mono">
+                  <span className="text-sm font-bold text-slate-100">{t(`categories.${cat}`)}</span>
+                  <span className="text-[10px] text-slate-400 font-mono">
                     {tCommon("setting_count", { count: items.length })}
                   </span>
                 </div>
                 {collapsed ? (
-                  <ChevronRight className="w-4 h-4 text-slate-500" />
+                  <ChevronRight className="w-4 h-4 text-slate-400" />
                 ) : (
-                  <ChevronDown className="w-4 h-4 text-slate-500" />
+                  <ChevronDown className="w-4 h-4 text-slate-400" />
                 )}
               </button>
 
@@ -303,14 +303,14 @@ export default function SettingsPage() {
                     return (
                       <div
                         key={item.key}
-                        className={`px-6 py-4 flex items-center gap-4 transition-colors ${
+                        className={`px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
                           isEditing ? "bg-jules-500/[0.06]" : ""
                         }`}
                       >
                         {/* Label & Description */}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-white font-mono">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-slate-100 font-mono">
                               {item.key}
                             </span>
                             {item.isSecret && (
@@ -329,22 +329,22 @@ export default function SettingsPage() {
                               </span>
                             )}
                           </div>
-                          <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                          <p className="text-[11px] text-slate-400 mt-0.5 truncate">
                             {item.description}
                           </p>
                         </div>
 
                         {/* Value / Input */}
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-start sm:justify-end">
                           {item.isSecret && !revealedSecrets.has(item.key) ? (
                             // Secret: show masked + reveal toggle
                             <>
-                              <span className="font-mono text-xs text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-white/10 min-w-40 text-center">
+                              <span className="font-mono text-xs text-jules-600 dark:text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-white/10 min-w-40 text-center">
                                 {displayValue}
                               </span>
                               <button
                                 onClick={() => toggleSecretReveal(item.key)}
-                                className="p-1.5 text-slate-500 hover:text-jules-300 transition-colors"
+                                className="p-1.5 text-slate-400 hover:text-jules-500 transition-colors cursor-pointer"
                                 title={t("reveal_secret")}
                               >
                                 <Eye className="w-3.5 h-3.5" />
@@ -359,12 +359,12 @@ export default function SettingsPage() {
                                 onChange={(e) =>
                                   setEdits((prev) => ({ ...prev, [item.key]: e.target.value }))
                                 }
-                                className="font-mono text-xs text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-jules-800 min-w-50 focus:outline-none focus:border-jules-500"
+                                className="font-mono text-xs text-jules-600 dark:text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-jules-800 min-w-50 focus:outline-none focus:border-jules-500"
                                 placeholder={t("enter_api_key")}
                               />
                               <button
                                 onClick={() => toggleSecretReveal(item.key)}
-                                className="p-1.5 text-slate-500 hover:text-jules-300 transition-colors"
+                                className="p-1.5 text-slate-400 hover:text-jules-500 transition-colors cursor-pointer"
                                 title={t("hide_secret")}
                               >
                                 <EyeOff className="w-3.5 h-3.5" />
@@ -377,7 +377,7 @@ export default function SettingsPage() {
                               onChange={(e) =>
                                 setEdits((prev) => ({ ...prev, [item.key]: e.target.value }))
                               }
-                              className="font-mono text-xs text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-white/10 focus:outline-none focus:border-jules-500 appearance-none cursor-pointer"
+                              className="font-mono text-xs text-jules-600 dark:text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-white/10 focus:outline-none focus:border-jules-500 cursor-pointer w-full sm:w-auto"
                             >
                               {["DISABLED", "DRY_RUN", "ASSISTED", "AUTO_RESPOND", "FULL_AUTO"].map(
                                 (opt) => (
@@ -393,7 +393,7 @@ export default function SettingsPage() {
                               onChange={(e) =>
                                 setEdits((prev) => ({ ...prev, [item.key]: e.target.value }))
                               }
-                              className="font-mono text-xs text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-white/10 focus:outline-none focus:border-jules-500 appearance-none cursor-pointer"
+                              className="font-mono text-xs text-jules-600 dark:text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-white/10 focus:outline-none focus:border-jules-500 cursor-pointer w-full sm:w-auto"
                             >
                               {["endpoint", "omniroute", "mock"].map((opt) => (
                                 <option key={opt} value={opt}>
@@ -405,7 +405,7 @@ export default function SettingsPage() {
                             // Model picker: free-text input with autocomplete over every
                             // model the provider exposes. Falls back to plain input when
                             // none can be listed.
-                            <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
                               <input
                                 type="text"
                                 list="available-models"
@@ -413,7 +413,7 @@ export default function SettingsPage() {
                                 onChange={(e) =>
                                   setEdits((prev) => ({ ...prev, [item.key]: e.target.value }))
                                 }
-                                className="font-mono text-xs text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-white/10 min-w-45 focus:outline-none focus:border-jules-500"
+                                className="font-mono text-xs text-jules-600 dark:text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-white/10 w-full sm:w-45 focus:outline-none focus:border-jules-500"
                                 placeholder={modelsLoading ? t("loading_models") : t("search_model")}
                               />
                               {!modelsLoading && availableModels.length > 0 && (
@@ -431,7 +431,7 @@ export default function SettingsPage() {
                               onChange={(e) =>
                                 setEdits((prev) => ({ ...prev, [item.key]: e.target.value }))
                               }
-                              className="font-mono text-xs text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-white/10 focus:outline-none focus:border-jules-500 appearance-none cursor-pointer"
+                              className="font-mono text-xs text-jules-600 dark:text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-white/10 focus:outline-none focus:border-jules-500 cursor-pointer w-full sm:w-auto"
                             >
                               <option value="true">true</option>
                               <option value="false">false</option>
@@ -444,7 +444,7 @@ export default function SettingsPage() {
                               onChange={(e) =>
                                 setEdits((prev) => ({ ...prev, [item.key]: e.target.value }))
                               }
-                              className="font-mono text-xs text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-white/10 min-w-45 focus:outline-none focus:border-jules-500"
+                              className="font-mono text-xs text-jules-600 dark:text-jules-300 bg-abyss px-3 py-1.5 rounded-lg border border-white/10 w-full sm:w-45 focus:outline-none focus:border-jules-500"
                             />
                           )}
                         </div>

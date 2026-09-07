@@ -13,26 +13,41 @@ export default async function SessionsPage() {
   const sessionsRepo = new SessionRepository(db);
   const activityRepo = new ActivityRepository(db);
 
-  const sessions = await sessionsRepo.list(50);
+  let rows: Array<{
+    id: string;
+    repository: string;
+    branch: string;
+    prompt: string;
+    state: string;
+    supervisorStatus: string;
+    cycleCount: number;
+    createdAt: string;
+    activities: Array<{ id: string; type: string; content: string; time: string }>;
+  }> = [];
 
-  const rows = await Promise.all(
-    sessions.map(async (session) => ({
-      id: session.id,
-      repository: session.repository,
-      branch: session.branch,
-      prompt: session.prompt,
-      state: session.state,
-      supervisorStatus: session.supervisorStatus,
-      cycleCount: session.cycleCount,
-      createdAt: session.createdAt.toISOString(),
-      activities: (await activityRepo.listBySession(session.id, "desc")).slice(0, 10).map((a) => ({
-        id: a.id,
-        type: a.type,
-        content: a.content ?? "",
-        time: a.createdAt.toISOString(),
+  try {
+    const sessions = await sessionsRepo.list(50);
+    rows = await Promise.all(
+      sessions.map(async (session) => ({
+        id: session.id,
+        repository: session.repository,
+        branch: session.branch,
+        prompt: session.prompt,
+        state: session.state,
+        supervisorStatus: session.supervisorStatus,
+        cycleCount: session.cycleCount,
+        createdAt: session.createdAt.toISOString(),
+        activities: (await activityRepo.listBySession(session.id, "desc")).slice(0, 10).map((a) => ({
+          id: a.id,
+          type: a.type,
+          content: a.content ?? "",
+          time: a.createdAt.toISOString(),
+        })),
       })),
-    })),
-  );
+    );
+  } catch (err) {
+    console.warn("Database unavailable, rendering sessions with fallback empty list:", err);
+  }
 
   return (
     <div className="space-y-6">
@@ -40,7 +55,7 @@ export default async function SessionsPage() {
         <div className="absolute -top-16 -right-16 w-56 h-56 bg-jules-600/10 blur-3xl rounded-full" />
         <div className="relative flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-white">{t("title")}</h2>
+            <h2 className="text-2xl font-bold tracking-tight text-slate-100">{t("title")}</h2>
             <p className="text-sm text-slate-400 mt-1">
               {t("description")}
             </p>
@@ -55,11 +70,11 @@ export default async function SessionsPage() {
             className="relative overflow-hidden p-6 bg-gradient-to-br from-panel to-abyss-soft rounded-2xl border border-white/10 space-y-4 hover:border-jules-500/30 transition-colors"
           >
             <div className="absolute -top-10 -right-10 w-40 h-40 bg-jules-600/5 blur-3xl rounded-full" />
-            <div className="relative flex items-start justify-between">
+            <div className="relative flex flex-col sm:flex-row sm:items-start justify-between gap-3">
               <div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                   <span className="font-mono text-sm font-bold text-jules-300">{session.id}</span>
-                  <span className="text-xs px-2 py-0.5 rounded bg-abyss text-slate-200 font-mono border border-white/10">
+                  <span className="text-xs px-2 py-0.5 rounded bg-abyss text-slate-100 font-mono border border-white/10">
                     {session.repository} ({session.branch})
                   </span>
                   <span
@@ -74,9 +89,9 @@ export default async function SessionsPage() {
                     {session.state}
                   </span>
                 </div>
-                <p className="text-sm text-slate-200 font-medium mt-2">{session.prompt}</p>
+                <p className="text-sm text-slate-100 font-medium mt-2">{session.prompt}</p>
               </div>
-              <div className="text-right text-xs font-mono text-slate-400">
+              <div className="text-left sm:text-right text-xs font-mono text-slate-400 shrink-0">
                 <div>{t("cycles")}: {formatNumber(locale, session.cycleCount)}</div>
                 <div>{formatDateTime(locale, session.createdAt)}</div>
               </div>
@@ -91,7 +106,7 @@ export default async function SessionsPage() {
                 {session.activities.map((act) => (
                   <div
                     key={act.id}
-                    className="p-3 bg-abyss/70 rounded-lg border border-white/5 flex items-start justify-between"
+                    className="p-3 bg-abyss/70 rounded-lg border border-white/5 flex flex-col sm:flex-row sm:items-start justify-between gap-2"
                   >
                     <div>
                       <span className="text-xs font-mono text-jules-300">[{act.type}]</span>
@@ -99,13 +114,13 @@ export default async function SessionsPage() {
                         {act.content}
                       </p>
                     </div>
-                    <span className="text-[10px] font-mono text-slate-500">
+                    <span className="text-[10px] font-mono text-slate-400 shrink-0">
                       {formatDateTime(locale, act.time)}
                     </span>
                   </div>
                 ))}
                 {session.activities.length === 0 && (
-                  <p className="text-xs text-slate-500">{t("no_activities")}</p>
+                  <p className="text-xs text-slate-400">{t("no_activities")}</p>
                 )}
               </div>
             </div>

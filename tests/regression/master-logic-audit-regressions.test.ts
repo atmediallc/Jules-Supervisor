@@ -148,7 +148,7 @@ describe("Master Logic Audit — Regression Suites", () => {
     expect(store.executionAttempts.get(id)!.status).toBe("SUCCEEDED");
   });
 
-  it("REG-05: reconciler marks superseded claimed attempt as FAILED when re-drive succeeds", async () => {
+  it("REG-05: reconciler retires a stale claim for review without replaying an uncertain effect", async () => {
     const { repos, store, julesClient, config } = setupPipeline();
     const decisionId = "dec_reconcile_superseded";
     const sessionId = "ses_rec_001";
@@ -213,11 +213,14 @@ describe("Master Logic Audit — Regression Suites", () => {
 
     const report = await reconciler.reconcileOnce();
     expect(report.recovered).toBe(1);
-    expect(report.succeeded).toBe(1);
+    expect(report.succeeded).toBe(0);
+    expect(report.reDriven).toBe(0);
+    expect(report.escalated).toBe(1);
+    expect(julesClient.sentMessages).toHaveLength(0);
 
-    // Old attempt MUST NOT remain in CLAIMED; it should be marked FAILED/TRANSIENT
+    // Old attempt MUST NOT remain CLAIMED or be guessed to have failed remotely.
     const updatedOld = store.executionAttempts.get(oldAttemptId)!;
-    expect(updatedOld.status).toBe("FAILED");
-    expect(updatedOld.errorCategory).toBe("TRANSIENT");
+    expect(updatedOld.status).toBe("NEEDS_RECONCILIATION");
+    expect(updatedOld.errorMessage).toContain("unverified");
   });
 });

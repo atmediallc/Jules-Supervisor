@@ -108,7 +108,7 @@ export class QdrantSemanticStore implements IQdrantSemanticStore {
     });
   }
 
-  public async ensureCollection(signal?: AbortSignal): Promise<void> {
+  public async ensureCollection(_signal?: AbortSignal): Promise<void> {
     await this.withRetry(async () => {
       const existing = await this.client.getCollections();
       const names = (existing.collections ?? []).map((c) => c.name ?? "");
@@ -153,7 +153,7 @@ export class QdrantSemanticStore implements IQdrantSemanticStore {
 
   public async upsert(
     points: SemanticMemoryPoint[],
-    signal?: AbortSignal,
+    _signal?: AbortSignal,
   ): Promise<void> {
     if (points.length === 0) return;
     await this.withRetry(async () => {
@@ -169,7 +169,7 @@ export class QdrantSemanticStore implements IQdrantSemanticStore {
     metrics.recordConsolidated(points.length);
   }
 
-  public async deleteByIds(ids: string[], signal?: AbortSignal): Promise<void> {
+  public async deleteByIds(ids: string[], _signal?: AbortSignal): Promise<void> {
     if (ids.length === 0) return;
     await this.withRetry(async () => {
       await this.client.delete(this.collection, {
@@ -183,7 +183,7 @@ export class QdrantSemanticStore implements IQdrantSemanticStore {
     vector: number[],
     filter: SemanticSearchFilter,
     limit: number,
-    signal?: AbortSignal,
+    _signal?: AbortSignal,
   ): Promise<SemanticSearchHit[]> {
     return this.withRetry(async () => {
       const must = this.buildFilterConditions(filter);
@@ -205,7 +205,7 @@ export class QdrantSemanticStore implements IQdrantSemanticStore {
 
   public async retrieveByIds(
     ids: string[],
-    signal?: AbortSignal,
+    _signal?: AbortSignal,
   ): Promise<SemanticSearchHit[]> {
     if (ids.length === 0) return [];
     return this.withRetry(async () => {

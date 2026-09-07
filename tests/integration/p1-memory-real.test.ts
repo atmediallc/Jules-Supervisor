@@ -31,8 +31,8 @@ describe("P1 Memory & Knowledge — Real PostgreSQL", () => {
   let decisionRepo: DecisionRepository;
   let knowledgeRepo: RepositoryKnowledgeRepository;
 
-  const REPO = `p1-integration/${Date.now()}`;
-  const OTHER_REPO = `p1-other/${Date.now()}`;
+  const REPO = `p1-integration/${randomUUID()}`;
+  const OTHER_REPO = `p1-other/${randomUUID()}`;
 
   beforeAll(async () => {
     db = getDatabase(TEST_DB_URL);
@@ -45,13 +45,13 @@ describe("P1 Memory & Knowledge — Real PostgreSQL", () => {
   afterAll(async () => {
     // Clean up P1 integration rows to leave the shared database tidy.
     await db.execute(
-      sql`DELETE FROM decisions WHERE session_id IN (SELECT id FROM sessions WHERE repository LIKE 'p1-%')`,
+      sql`DELETE FROM decisions WHERE session_id IN (SELECT id FROM sessions WHERE repository IN (${REPO}, ${OTHER_REPO}))`,
     );
     await db.execute(
-      sql`DELETE FROM activities WHERE session_id IN (SELECT id FROM sessions WHERE repository LIKE 'p1-%')`,
+      sql`DELETE FROM activities WHERE session_id IN (SELECT id FROM sessions WHERE repository IN (${REPO}, ${OTHER_REPO}))`,
     );
-    await db.execute(sql`DELETE FROM sessions WHERE repository LIKE 'p1-%'`);
-    await db.execute(sql`DELETE FROM repository_knowledge WHERE repository_id LIKE 'p1-%'`);
+    await db.execute(sql`DELETE FROM sessions WHERE repository IN (${REPO}, ${OTHER_REPO})`);
+    await db.execute(sql`DELETE FROM repository_knowledge WHERE repository_id IN (${REPO}, ${OTHER_REPO})`);
     await closeDatabase();
   });
 

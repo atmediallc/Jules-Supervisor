@@ -73,6 +73,9 @@ export class JulesApiClient implements IJulesClient {
     await this.rateLimiter.acquire(1, customSignal);
 
     const url = `${this.baseUrl}${endpoint}`;
+    // Jules does not document mutation idempotency. A timeout or gateway error
+    // may follow a committed effect, so only reads can be retried automatically.
+    const canRetry = (options.method ?? "GET").toUpperCase() === "GET";
     let attempt = 0;
 
     while (attempt <= this.maxRetries) {
@@ -105,7 +108,7 @@ export class JulesApiClient implements IJulesClient {
           const error = JulesApiError.fromResponse(response.status, bodyText);
           metrics.incrementJulesError(response.status);
 
-          if (error.isRetryable && attempt <= this.maxRetries) {
+          if (canRetry && error.isRetryable && attempt <= this.maxRetries) {
             const backoff = calculateBackoff(attempt);
             logger.warn(
               `Jules API transient error [${response.status}], retrying in ${backoff}ms...`,
@@ -125,7 +128,7 @@ export class JulesApiClient implements IJulesClient {
         if (err instanceof JulesApiError) throw err;
 
         const isTimeout = (err as Error)?.name === "AbortError";
-        if (isTimeout && attempt <= this.maxRetries) {
+        if (canRetry && isTimeout && attempt <= this.maxRetries) {
           metrics.incrementJulesError("TIMEOUT");
           const backoff = calculateBackoff(attempt);
           logger.warn(`Jules API timeout on attempt ${attempt}, retrying in ${backoff}ms...`);

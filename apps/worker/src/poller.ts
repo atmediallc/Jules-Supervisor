@@ -81,27 +81,38 @@ export class SessionWatcher {
    * checkpoint is an observability/performance cursor only.
    */
   public async syncActiveSessions(signal?: AbortSignal): Promise<void> {
-    const listResponse = await this.julesClient.listSessions({}, signal);
-    const sessions = listResponse.sessions;
-
-    for (const session of sessions) {
+    if (this.config.SUPERVISOR_MODE === "DISABLED") return;
+    let pageToken: string | undefined;
+    const seenPageTokens = new Set<string>();
+    do {
       if (signal?.aborted) break;
+      const listResponse = await this.julesClient.listSessions({ pageToken }, signal);
+      const sessions = listResponse.sessions;
 
-      // Only inspect sessions in active or awaiting states
-      const needsInspection =
-        session.state === "AWAITING_USER_INPUT" ||
-        session.state === "AWAITING_PLAN_APPROVAL" ||
-        session.state === "IN_PROGRESS" ||
-        session.state === "PLANNING";
+      for (const session of sessions) {
+        if (signal?.aborted) break;
 
-      if (!needsInspection) continue;
+        // Only inspect sessions in active or awaiting states
+        const needsInspection =
+          session.state === "AWAITING_USER_INPUT" ||
+          session.state === "AWAITING_PLAN_APPROVAL" ||
+          session.state === "IN_PROGRESS" ||
+          session.state === "PLANNING";
 
-      try {
-        await this.reconcileSession(session, signal);
-      } catch (err: unknown) {
-        logger.error(`Failed to process session ${session.id}`, err);
+        if (!needsInspection) continue;
+
+        try {
+          await this.reconcileSession(session, signal);
+        } catch (err: unknown) {
+          logger.error(`Failed to process session ${session.id}`, err);
+        }
       }
-    }
+      pageToken = listResponse.nextPageToken;
+      if (pageToken && seenPageTokens.has(pageToken)) {
+        throw new Error("Jules session pagination returned a repeated page token");
+      }
+      if (pageToken) seenPageTokens.add(pageToken);
+    } while (pageToken);
   }
 
   /**
@@ -109,17 +120,13 @@ export class SessionWatcher {
    * activity to the pipeline. `processActivity` is idempotent, so processing
    * an activity that was already handled in a prior cycle is a safe no-op.
    */
-  private async reconcileSession(
-    session: JulesSession,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    const checkpoint = this.checkpointRepo
-      ? await this.checkpointRepo.getBySession(session.id)
-      : null;
-
-    let pageToken = checkpoint?.nextPageToken ?? undefined;
-    let highWaterMark = checkpoint?.lastActivityId ?? null;
-    let savedHighWaterMark = highWaterMark;
+  private async reconcileSession(session: JulesSession, signal?: AbortSignal): Promise<void> {
+    // IDs and page tokens are opaque, not ordered event offsets. Start a fresh
+    // listing each pass and let the durable decision key deduplicate work.
+    // Reusing a page token across polls can also hide new entries on page one.
+    let pageToken: string | undefined;
+    let highWaterMark: string | null = null;
+    const seenPageTokens = new Set<string>();
 
     // Iterate until the API returns no next page token.
     for (;;) {
@@ -137,29 +144,26 @@ export class SessionWatcher {
           if (signal?.aborted) break;
           if (!activity?.id) continue;
 
-          // Skip work already covered by the high-water mark cursor (safety
-          // optimization; idempotency is the real correctness guarantee).
-          if (highWaterMark && activity.id <= highWaterMark) {
-            continue;
-          }
-
           await this.pipeline.processActivity({ session, activity });
           highWaterMark = activity.id;
         }
       }
 
-      // Persist progress so a future catch-up can resume from here.
-      if (this.checkpointRepo && highWaterMark !== savedHighWaterMark) {
+      // Checkpoints are diagnostic only; durable decisions determine replay.
+      if (this.checkpointRepo && !signal?.aborted) {
         await this.checkpointRepo.upsert(session.id, {
           lastActivityId: highWaterMark,
-          nextPageToken: activitiesRes.nextPageToken ?? null,
+          nextPageToken: null,
         });
-        savedHighWaterMark = highWaterMark;
       }
 
       // No more pages: we are caught up.
       if (!activitiesRes.nextPageToken) break;
       pageToken = activitiesRes.nextPageToken;
+      if (seenPageTokens.has(pageToken)) {
+        throw new Error("Jules activity pagination returned a repeated page token");
+      }
+      seenPageTokens.add(pageToken);
     }
   }
 }

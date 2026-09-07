@@ -183,7 +183,7 @@ class MetricsRegistry {
     this.recallQueries++;
   }
 
-  public incrementRecallDegraded(reason?: string): void {
+  public incrementRecallDegraded(_reason?: string): void {
     this.recallDegraded++;
   }
 

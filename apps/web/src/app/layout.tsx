@@ -33,7 +33,7 @@ export default async function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem("jules-theme");var d=t==="light"||t==="dark"?t:(window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");document.documentElement.dataset.theme=d;}catch(e){document.documentElement.dataset.theme="dark";}})();`,
+            __html: `(function(){try{var t=localStorage.getItem("jules-theme");var d=t==="light"||t==="dark"?t:(window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark");document.documentElement.dataset.theme=d;document.documentElement.dataset.themeSetting=t||"system";document.documentElement.classList.toggle("dark",d==="dark");}catch(e){document.documentElement.dataset.theme="dark";document.documentElement.dataset.themeSetting="system";document.documentElement.classList.add("dark");}})();`,
           }}
         />
       </head>

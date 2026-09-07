@@ -3,7 +3,6 @@
  * own QdrantSemanticStore adapter. Creates/verifies the collection and then
  * health-checks Qdrant.
  */
-import { resolve } from "node:path";
 import { QdrantSemanticStore } from "../../packages/ai/src/qdrant-adapter.js";
 
 const QDRANT_URL = process.env["QDRANT_URL"] || "http://127.0.0.1:6333";

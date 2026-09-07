@@ -46,6 +46,9 @@ export function isRateLimited(key: string, kind: RateLimitKind): boolean {
   if (buckets.size >= MAX_BUCKETS) pruneExpired(windowMs);
 
   if (!bucket || now - bucket.windowStart >= windowMs) {
+    // Never grow beyond the cap or evict an active bucket (which would reset
+    // its allowance). Refuse new identities until an existing window expires.
+    if (!buckets.has(key) && buckets.size >= MAX_BUCKETS) return true;
     buckets.set(key, { count: 1, windowStart: now });
     return false;
   }

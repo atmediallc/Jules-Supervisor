@@ -14,12 +14,10 @@ export interface CreateExecutionAttemptInput {
 /**
  * Durable execution-attempt ledger (H3).
  *
- * Safety model: external effects are applied to the Jules API with an idempotent
- * `clientToken`. A worker may apply an effect and die before recording success.
- * The reconciler re-claims that stranded attempt ("stale" = past its lease) and
- * re-drives it with the SAME clientToken, which the API de-duplicates — so retry
- * cannot double-apply. Ambiguous outcomes are flagged UNKNOWN_EFFECT for human
- * escalation, never silently guessed.
+ * A worker may apply an external effect and die before recording success.
+ * The reconciler reclaims stranded attempts ("stale" = past their lease) for
+ * operator verification, never automatic replay. clientToken is correlation
+ * metadata; Jules does not document server-side deduplication by that token.
  *
  * All claim/recover transitions are atomic UPDATE ... WHERE status=... guards so
  * concurrent reconcilers cannot claim the same attempt twice.

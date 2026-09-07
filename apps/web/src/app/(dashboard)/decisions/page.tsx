@@ -11,14 +11,19 @@ export default async function DecisionsPage() {
   const config = getConfig();
   const db = getDatabase(config.DATABASE_URL);
   const repo = new DecisionRepository(db);
-  const decisions = await repo.list(100);
+  let decisions: Awaited<ReturnType<typeof repo.list>> = [];
+  try {
+    decisions = await repo.list(100);
+  } catch (err) {
+    console.warn("Database unavailable, rendering decisions with fallback empty list:", err);
+  }
 
   return (
     <div className="space-y-6">
       <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-panel via-abyss-soft to-abyss p-6">
         <div className="absolute -top-16 -right-16 w-56 h-56 bg-jules-600/10 blur-3xl rounded-full" />
         <div className="relative">
-          <h2 className="text-2xl font-bold tracking-tight text-white">
+          <h2 className="text-2xl font-bold tracking-tight text-slate-100">
             {t("title")}
           </h2>
           <p className="text-sm text-slate-400 mt-1">
@@ -34,11 +39,11 @@ export default async function DecisionsPage() {
             className="relative overflow-hidden p-6 bg-gradient-to-br from-panel to-abyss-soft rounded-2xl border border-white/10 space-y-4 hover:border-jules-500/30 transition-colors"
           >
             <div className="absolute -top-10 -right-10 w-40 h-40 bg-jules-600/5 blur-3xl rounded-full" />
-            <div className="relative flex items-start justify-between">
+            <div className="relative flex flex-col sm:flex-row sm:items-start justify-between gap-3">
               <div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                   <span className="font-mono text-sm font-bold text-jules-300">{dec.id}</span>
-                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-abyss text-slate-200 border border-white/10">
+                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-abyss text-slate-100 border border-white/10">
                     {t("session")}: {dec.sessionId}
                   </span>
                   <span className="text-xs font-mono px-2 py-0.5 rounded bg-jules-950 text-jules-300 border border-jules-800">
@@ -53,7 +58,7 @@ export default async function DecisionsPage() {
                   >
                     {dec.risk.toUpperCase()} {t("risk")}
                   </span>
-                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-abyss text-slate-300 border border-white/10">
+                  <span className="text-xs font-mono px-2 py-0.5 rounded bg-abyss text-slate-100 border border-white/10">
                     {t("state")}: {dec.executionState}
                   </span>
                 </div>
@@ -61,15 +66,15 @@ export default async function DecisionsPage() {
                   {t("confidence")}: {formatPercent(locale, dec.confidence)} — {dec.reason}
                 </p>
               </div>
-              <div className="text-right text-xs font-mono text-slate-400">
+              <div className="text-left sm:text-right text-xs font-mono text-slate-400 shrink-0">
                 <div>Model: {dec.model}</div>
                 <div>{formatDateTime(locale, dec.createdAt)}</div>
               </div>
             </div>
 
-            <div className="relative pt-3 border-t border-white/5 flex items-center justify-between text-[11px] font-mono text-slate-400">
+            <div className="relative pt-3 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] font-mono text-slate-400">
               <div>
-                {t("context_digest")}: <span className="text-slate-200">{dec.contextDigest}</span>
+                {t("context_digest")}: <span className="text-slate-100">{dec.contextDigest}</span>
               </div>
               <div>{t("provider")}: {dec.provider}</div>
             </div>

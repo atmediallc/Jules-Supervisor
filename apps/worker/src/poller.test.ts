@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MockAiDecisionProvider } from "@jules/ai";
 import { EnvSchema } from "@jules/config";
 import {
@@ -115,6 +115,13 @@ function seedSession(
 }
 
 describe("SessionWatcher reconciliation", () => {
+  it("DISABLED performs no external observation", async () => {
+    const { config, julesClient, pipeline } = setupWatcher("DRY_RUN");
+    const list = vi.spyOn(julesClient, "listSessions");
+    const watcher = new SessionWatcher({ ...config, SUPERVISOR_MODE: "DISABLED" }, julesClient, pipeline);
+    await watcher.syncActiveSessions();
+    expect(list).not.toHaveBeenCalled();
+  });
   it("reconciles ALL accumulated activities (not just the last) after downtime", async () => {
     const { config, store, julesClient, pipeline, checkpointRepo } = setupWatcher("FULL_AUTO");
     seedSession(julesClient, "ses_recon_001", ["A", "B", "C"]);
@@ -160,19 +167,79 @@ describe("SessionWatcher reconciliation", () => {
     expect(julesClient.approvedPlans.length).toBe(0);
   });
 
-  it("respects a persisted checkpoint and skips already-seen activities", async () => {
+  it("deduplicates persisted decisions when a checkpoint exists", async () => {
     const { config, store, julesClient, pipeline, checkpointRepo } = setupWatcher("FULL_AUTO");
     seedSession(julesClient, "ses_recon_003", ["A", "B", "C"]);
 
-    // Simulate a prior run that already advanced the cursor past A.
+    // A real prior run persists a decision, not just an advisory checkpoint.
+    await pipeline.processActivity({
+      session: julesClient.sessions.get("ses_recon_003")!,
+      activity: julesClient.activities.get("ses_recon_003")![0]!,
+    });
     await checkpointRepo.upsert("ses_recon_003", { lastActivityId: "act_a_ses_recon_003" });
 
     const watcher = new SessionWatcher(config, julesClient, pipeline, checkpointRepo);
     await watcher.syncActiveSessions();
 
     const decisions = await store.listDecisions();
-    // A is skipped by the cursor; B and C are newly processed.
-    expect(decisions.length).toBe(2);
-    expect(julesClient.sentMessages.length).toBe(2);
+    // A is deduplicated by its decision; only B and C add new effects.
+    expect(decisions.length).toBe(3);
+    expect(julesClient.sentMessages.length).toBe(3);
+  });
+
+  it("processes out-of-order IDs and a new lower ID after a checkpoint", async () => {
+    const { config, store, julesClient, pipeline, checkpointRepo } = setupWatcher("DRY_RUN");
+    seedSession(julesClient, "opaque", ["A", "B"]);
+    const activities = julesClient.activities.get("opaque")!;
+    activities[0]!.id = "z-id";
+    activities[1]!.id = "b-id";
+    const watcher = new SessionWatcher(config, julesClient, pipeline, checkpointRepo);
+    await watcher.syncActiveSessions();
+    expect((await store.listDecisions()).length).toBe(2);
+    activities.unshift({ ...activities[0]!, id: "a-new-id", content: "New question" });
+    await watcher.syncActiveSessions();
+    expect((await store.listDecisions()).length).toBe(3);
+  });
+
+  it("visits later session pages and starts activity listing without a stale token", async () => {
+    const { config, store, julesClient, pipeline, checkpointRepo } = setupWatcher("DRY_RUN");
+    seedSession(julesClient, "page-two", ["Question"]);
+    const session = julesClient.sessions.get("page-two")!;
+    const listSessions = vi
+      .spyOn(julesClient, "listSessions")
+      .mockResolvedValueOnce({ sessions: [], nextPageToken: "second" })
+      .mockResolvedValueOnce({ sessions: [session] });
+    const listActivities = vi.spyOn(julesClient, "listActivities");
+    await checkpointRepo.upsert(session.id, { lastActivityId: "z", nextPageToken: "expired" });
+    const watcher = new SessionWatcher(config, julesClient, pipeline, checkpointRepo);
+    await watcher.syncActiveSessions();
+    expect(listSessions).toHaveBeenNthCalledWith(2, { pageToken: "second" }, undefined);
+    expect(listActivities).toHaveBeenCalledWith(
+      session.id,
+      { pageSize: 100, pageToken: undefined },
+      undefined,
+    );
+    expect((await store.listDecisions()).length).toBe(1);
+  });
+
+  it("bounds malformed session pagination cycles", async () => {
+    const { config, julesClient, pipeline } = setupWatcher("DRY_RUN");
+    const list = vi
+      .spyOn(julesClient, "listSessions")
+      .mockResolvedValue({ sessions: [], nextPageToken: "repeated" });
+    const watcher = new SessionWatcher(config, julesClient, pipeline);
+    await expect(watcher.syncActiveSessions()).rejects.toThrow("repeated page token");
+    expect(list).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds malformed activity pagination cycles", async () => {
+    const { config, julesClient, pipeline } = setupWatcher("DRY_RUN");
+    seedSession(julesClient, "cycle", []);
+    const list = vi
+      .spyOn(julesClient, "listActivities")
+      .mockResolvedValue({ activities: [], nextPageToken: "repeated" });
+    const watcher = new SessionWatcher(config, julesClient, pipeline);
+    await watcher.syncActiveSessions();
+    expect(list).toHaveBeenCalledTimes(2);
   });
 });
