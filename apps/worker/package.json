@@ -22,7 +22,7 @@
     "@jules/policy": "workspace:*",
     "@jules/shared": "workspace:*",
     "ioredis": "^6.0.0",
-    "bullmq": "^6.3.3",
+    "bullmq": "^6.3.4",
     "prom-client": "^15.1.0",
     "zod": "^4.5.4"
   },
