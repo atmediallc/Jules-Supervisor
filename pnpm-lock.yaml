@@ -197,8 +197,8 @@ importers:
         specifier: ^1.19.0
         version: 1.19.0(typescript@5.9.3)
       openai:
-        specifier: ^7.8.0
-        version: 7.9.0(undici@7.29.0)(zod@4.5.4)
+        specifier: ^7.10.0
+        version: 7.10.0(undici@7.29.0)(zod@4.5.4)
       zod:
         specifier: ^4.5.4
         version: 4.5.4
@@ -2510,8 +2510,8 @@ packages:
     resolution: {integrity: sha512-0eJJY6hXLGf1udHwfNftBqH+g73EU4B504nZeKpz1sYRKafAghwxEJunB2O7rDZkL4PGfsMVnTXZ2EjibbqcsA==}
     engines: {node: '>=14.0.0'}
 
-  openai@7.9.0:
-    resolution: {integrity: sha512-Qfx4qKmPllnilbuP6NgEj5KPUxLShYxrlRPWh3ZRQgNgs5B1V52PrfAdEQbW9MTGq7MquDYFMm+K/KXxiY736w==}
+  openai@7.10.0:
+    resolution: {integrity: sha512-sn9t2Kls7O52PwuF9BUTYNu4Gk/r0lXJyrgaNht4TNRlZFb3dJIGO0RciSgjARGCBRtWjySubAQFJttlzUvGQQ==}
     engines: {node: '>=22.0.0'}
     peerDependencies:
       '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
@@ -4680,7 +4680,7 @@ snapshots:
 
   on-exit-leak-free@2.1.2: {}
 
-  openai@7.9.0(undici@7.29.0)(zod@4.5.4):
+  openai@7.10.0(undici@7.29.0)(zod@4.5.4):
     optionalDependencies:
       undici: 7.29.0
       zod: 4.5.4
