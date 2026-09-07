@@ -2,6 +2,7 @@ import {
   AiDecisionResponse,
   ContextBuilder,
   IAiDecisionProvider,
+  ProviderAttempt,
   RecalledMemoryDto,
 } from "@jules/ai";
 import { AppConfig } from "@jules/config";
@@ -85,9 +86,9 @@ export interface PipelineExecutionResult {
 }
 
 export class SupervisionPipeline {
-  private readonly config: AppConfig;
+  private config: AppConfig;
   private readonly julesClient: IJulesClient;
-  private readonly aiProvider: IAiDecisionProvider;
+  private aiProvider: IAiDecisionProvider;
   private readonly policyEngine: PolicyEngine;
   private readonly sessionRepo: SessionRepository;
   private readonly activityRepo: ActivityRepository;
@@ -145,6 +146,17 @@ export class SupervisionPipeline {
     }
   }
 
+  /** Dynamically reconfigure pipeline dependencies at runtime (R04). */
+  public updateConfig(
+    newConfig: AppConfig,
+    newAiProvider?: IAiDecisionProvider,
+  ): void {
+    this.config = newConfig;
+    if (newAiProvider) {
+      this.aiProvider = newAiProvider;
+    }
+  }
+
   public async processActivity(
     input: ProcessActivityInput,
   ): Promise<PipelineExecutionResult | null> {
@@ -184,6 +196,36 @@ export class SupervisionPipeline {
         patch: (activity.patch ?? null) as { diff?: string; filesChanged?: string[] } | null,
         rawPayload: activity as unknown as Record<string, unknown>,
       });
+
+      // Verified downstream outcome learning: terminal events from Jules
+      if (activity.type === "SESSION_COMPLETED" && this.semanticMemory) {
+        await this.semanticMemory
+          .reflectAndAdmit({
+            executionId: activity.id,
+            repositoryId: session.repository,
+            task: session.prompt || "Session task",
+            affectedPaths: activity.patch?.filesChanged,
+            actions: [activity.type],
+            result: activity.content || "Session completed successfully",
+            outcome: "success",
+            toolsUsed: ["jules-api"],
+          })
+          .catch(() => {});
+      } else if (activity.type === "SESSION_FAILED" && this.semanticMemory) {
+        await this.semanticMemory
+          .reflectAndAdmit({
+            executionId: activity.id,
+            repositoryId: session.repository,
+            task: session.prompt || "Session task",
+            affectedPaths: activity.patch?.filesChanged,
+            actions: [activity.type],
+            result: activity.content || "Session failed in Jules",
+            outcome: "failure",
+            errors: [activity.content || "Session failed"],
+            toolsUsed: ["jules-api"],
+          })
+          .catch(() => {});
+      }
 
       // 2. Deterministic Idempotency Key
       const expectedAction = activity.type === "PLAN_GENERATED" ? "APPROVE_PLAN" : "RESPOND";
@@ -354,16 +396,87 @@ export class SupervisionPipeline {
         metrics.incrementBudgetExhaustion();
       } else {
         // 6. Query AI Decision Engine
-        aiResponse = await this.aiProvider.decide(context);
+        try {
+          aiResponse = await this.aiProvider.decide(context);
+        } catch (aiErr: unknown) {
+          const attempted =
+            (aiErr as { attempts?: ProviderAttempt[]; __providerRouterAttempts?: ProviderAttempt[] })
+              .attempts ??
+            (aiErr as { attempts?: ProviderAttempt[]; __providerRouterAttempts?: ProviderAttempt[] })
+              .__providerRouterAttempts;
+          if (Array.isArray(attempted) && attempted.length > 0) {
+            const calls = attempted.filter(
+              (a) => a.status !== "SKIPPED_CIRCUIT",
+            ).length;
+            if (calls > 0) {
+              const sumPrompt = attempted.reduce(
+                (acc, a) => acc + (a.promptTokens ?? 0),
+                0,
+              );
+              const sumCompletion = attempted.reduce(
+                (acc, a) => acc + (a.completionTokens ?? 0),
+                0,
+              );
+              const sumTotal = attempted.reduce(
+                (acc, a) => acc + (a.totalTokens ?? 0),
+                0,
+              );
+              await this.budgetRepo
+                .incrementUsage(session.id, {
+                  aiCalls: calls,
+                  promptTokens: sumPrompt,
+                  completionTokens: sumCompletion,
+                  totalTokens: sumTotal,
+                  estimatedCostUsd: this.estimateCost(
+                    sumPrompt,
+                    sumCompletion,
+                  ),
+                })
+                .catch(() => {});
+            }
+          }
+          throw aiErr;
+        }
+
+        // Aggregate actual usage across all provider attempts in the routing chain
+        const routedAttempts = (aiResponse as { attempts?: ProviderAttempt[] }).attempts;
+        let totalPromptTokens = aiResponse.usage?.promptTokens ?? 0;
+        let totalCompletionTokens = aiResponse.usage?.completionTokens ?? 0;
+        let totalTokens = aiResponse.usage?.totalTokens ?? 0;
+        let totalCalls = 1;
+
+        if (Array.isArray(routedAttempts) && routedAttempts.length > 0) {
+          totalCalls =
+            routedAttempts.filter((a) => a.status !== "SKIPPED_CIRCUIT")
+              .length || 1;
+          const sumPrompt = routedAttempts.reduce(
+            (acc, a) => acc + (a.promptTokens ?? 0),
+            0,
+          );
+          const sumCompletion = routedAttempts.reduce(
+            (acc, a) => acc + (a.completionTokens ?? 0),
+            0,
+          );
+          const sumTotal = routedAttempts.reduce(
+            (acc, a) => acc + (a.totalTokens ?? 0),
+            0,
+          );
+          if (sumTotal > totalTokens) {
+            totalPromptTokens = sumPrompt;
+            totalCompletionTokens = sumCompletion;
+            totalTokens = sumTotal;
+          }
+        }
+
         // Record actual AI usage against the persistent budget (atomic upsert).
         await this.budgetRepo.incrementUsage(session.id, {
-          aiCalls: 1,
-          promptTokens: aiResponse.usage?.promptTokens ?? 0,
-          completionTokens: aiResponse.usage?.completionTokens ?? 0,
-          totalTokens: aiResponse.usage?.totalTokens ?? 0,
+          aiCalls: totalCalls,
+          promptTokens: totalPromptTokens,
+          completionTokens: totalCompletionTokens,
+          totalTokens: totalTokens,
           estimatedCostUsd: this.estimateCost(
-            aiResponse.usage?.promptTokens ?? 0,
-            aiResponse.usage?.completionTokens ?? 0,
+            totalPromptTokens,
+            totalCompletionTokens,
           ),
         });
       }
@@ -729,7 +842,7 @@ export class SupervisionPipeline {
               affectedPaths: activity.patch?.filesChanged,
               actions: recentActivities.slice(-4).map((a) => a.type),
               result: proposedDecision.response ?? "",
-              outcome: "success",
+              outcome: "partial",
               toolsUsed: ["jules-api", "supervisor-ai"],
             }).catch(() => {});
           }

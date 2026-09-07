@@ -429,6 +429,16 @@ export async function PUT(req: NextRequest) {
           })),
         );
 
+        // Monotonically advance configuration revision for distributed workers
+        const revision = String(Date.now());
+        await txRepo.upsert({
+          key: "CONFIG_REVISION",
+          value: revision,
+          category: "runtime",
+          isSecret: false,
+          description: "Monotonically increasing configuration revision counter",
+        });
+
         // Audit the privileged mutation: which settings changed and by whom.
         // Secret values are never written into the audit record.
         const txAudit = new AuditRepository(tx);
@@ -494,6 +504,15 @@ export async function DELETE(req: NextRequest) {
       await runInTransaction(db, async (tx) => {
         const txRepo = new SystemSettingsRepository(tx);
         await txRepo.deleteByKey(key);
+
+        const revision = String(Date.now());
+        await txRepo.upsert({
+          key: "CONFIG_REVISION",
+          value: revision,
+          category: "runtime",
+          isSecret: false,
+          description: "Monotonically increasing configuration revision counter",
+        });
 
         const txAudit = new AuditRepository(tx);
         await txAudit.record({

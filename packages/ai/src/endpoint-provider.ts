@@ -1,7 +1,11 @@
 import { DecisionSchema } from "@jules/core";
 import { logger, metrics } from "@jules/observability";
 import OpenAI from "openai";
-import { validateProviderUrl, validateProviderUrlWithDns } from "./ssrf-guard.js";
+import {
+  createSsrfGuardedFetch,
+  validateProviderUrl,
+  validateProviderUrlWithDns,
+} from "./ssrf-guard.js";
 import { AiDecisionResponse, BuiltContext, IAiDecisionProvider } from "./types.js";
 
 export interface EndpointProviderConfig {
@@ -48,11 +52,17 @@ export class EndpointProvider implements IAiDecisionProvider {
       throw new Error(`AI Provider URL blocked by SSRF Guard: ${ssrfCheck.reason}`);
     }
 
+    const ssrfFetch = createSsrfGuardedFetch({
+      allowInsecureLocal: config.allowInsecureLocal,
+      trustedInternalHosts: config.trustedInternalHosts,
+    });
+
     this.client = new OpenAI({
       baseURL: baseUrl,
       apiKey: config.apiKey,
       timeout: this.timeoutMs,
       maxRetries: config.maxRetries ?? 0,
+      fetch: ssrfFetch as unknown as typeof fetch,
     });
   }
 

@@ -91,4 +91,32 @@ describe("RedisDistributedLock.withLock renewal", () => {
     // Cleanup the foreign lock so the test leaves no state behind.
     client.eval("del", 1, `lock:${resource}`, "foreign-token");
   });
+
+  it("signals abort when lock ownership is lost during critical section", async () => {
+    const { client, store } = makeMockRedis();
+    const lock = new RedisDistributedLock(client);
+
+    const resource = "session:test-fencing";
+    let signalReceivedAbort = false;
+
+    await lock.withLock(
+      resource,
+      async (context) => {
+        expect(context?.isOwned()).toBe(true);
+
+        // Simulate another worker stealing/overwriting the lock in Redis
+        store.set(`lock:${resource}`, { value: "stolen-token", expiresAt: Date.now() + 10000 });
+
+        // Wait for renewal cycle to detect loss
+        await sleep(250);
+
+        if (context?.signal.aborted) {
+          signalReceivedAbort = true;
+        }
+      },
+      150,
+    );
+
+    expect(signalReceivedAbort).toBe(true);
+  });
 });

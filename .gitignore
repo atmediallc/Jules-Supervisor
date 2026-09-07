@@ -36,6 +36,9 @@ next-env.d.ts
 *.pfx
 *.crt
 
+# Ephemeral test authentication state
+tests/e2e/.auth/
+
 /logs/
 package-lock.json
 yarn.lock

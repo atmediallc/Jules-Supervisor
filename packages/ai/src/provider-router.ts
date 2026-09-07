@@ -268,6 +268,7 @@ export class DefaultProviderRouter implements ProviderRouter {
     );
     (err as Error & { providerClass?: ProviderFailure["class"] }).providerClass =
       lastFailure?.class ?? "NON_RETRYABLE_PROVIDER_FAILURE";
+    (err as Error & { attempts?: ProviderAttempt[] }).attempts = attempts;
     (err as Error & { __providerRouterAttempts?: ProviderAttempt[] }).__providerRouterAttempts =
       attempts;
     metrics.incrementAiFailover("all_providers_failed");

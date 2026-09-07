@@ -2,6 +2,7 @@ import { IJulesClient } from "./client.js";
 import {
   ApprovePlanRequest,
   JulesActivity,
+  JulesMutationAck,
   JulesSession,
   ListActivitiesResponse,
   ListSessionsResponse,
@@ -10,7 +11,7 @@ import {
 
 export interface MockJulesHooks {
   onSendMessage?: (sessionId: string, req: SendMessageRequest) => void;
-  onApprovePlan?: (sessionId: string, req: ApprovePlanRequest) => void;
+  onApprovePlan?: (sessionId: string, req?: ApprovePlanRequest) => void;
   shouldFail?: (endpoint: string) => Error | null;
 }
 
@@ -18,7 +19,7 @@ export class MockJulesClient implements IJulesClient {
   public sessions: Map<string, JulesSession> = new Map();
   public activities: Map<string, JulesActivity[]> = new Map();
   public sentMessages: Array<{ sessionId: string; request: SendMessageRequest }> = [];
-  public approvedPlans: Array<{ sessionId: string; request: ApprovePlanRequest }> = [];
+  public approvedPlans: Array<{ sessionId: string; request?: ApprovePlanRequest }> = [];
   public hooks: MockJulesHooks = {};
 
   constructor() {
@@ -114,17 +115,18 @@ export class MockJulesClient implements IJulesClient {
     return act;
   }
 
-  public async sendMessage(sessionId: string, request: SendMessageRequest): Promise<JulesActivity> {
+  public async sendMessage(sessionId: string, request: SendMessageRequest): Promise<JulesMutationAck> {
     const err = this.hooks.shouldFail?.("sendMessage");
     if (err) throw err;
     this.hooks.onSendMessage?.(sessionId, request);
     this.sentMessages.push({ sessionId, request });
 
+    const messageContent = request.prompt ?? request.message ?? "";
     const newActivity: JulesActivity = {
       id: `act_mock_${Date.now()}`,
       sessionId,
       type: "USER_MESSAGE",
-      content: request.message,
+      content: messageContent,
       createTime: new Date().toISOString(),
     };
 
@@ -138,20 +140,21 @@ export class MockJulesClient implements IJulesClient {
       session.updateTime = new Date().toISOString();
     }
 
-    return newActivity;
+    return { acknowledged: true };
   }
 
-  public async approvePlan(sessionId: string, request: ApprovePlanRequest): Promise<JulesActivity> {
+  public async approvePlan(sessionId: string, request?: ApprovePlanRequest): Promise<JulesMutationAck> {
     const err = this.hooks.shouldFail?.("approvePlan");
     if (err) throw err;
     this.hooks.onApprovePlan?.(sessionId, request);
-    this.approvedPlans.push({ sessionId, request });
+    this.approvedPlans.push({ sessionId, request: request ?? {} });
 
+    const approved = request?.approved ?? true;
     const newActivity: JulesActivity = {
       id: `act_mock_plan_${Date.now()}`,
       sessionId,
-      type: request.approved ? "PLAN_APPROVED" : "PLAN_REJECTED",
-      content: request.feedback || (request.approved ? "Plan approved" : "Plan rejected"),
+      type: approved ? "PLAN_APPROVED" : "PLAN_REJECTED",
+      content: request?.feedback || (approved ? "Plan approved" : "Plan rejected"),
       createTime: new Date().toISOString(),
     };
 
@@ -161,10 +164,10 @@ export class MockJulesClient implements IJulesClient {
 
     const session = this.sessions.get(sessionId);
     if (session) {
-      session.state = request.approved ? "IN_PROGRESS" : "PLANNING";
+      session.state = approved ? "IN_PROGRESS" : "PLANNING";
       session.updateTime = new Date().toISOString();
     }
 
-    return newActivity;
+    return { acknowledged: true };
   }
 }

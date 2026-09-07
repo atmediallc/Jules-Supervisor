@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-jules_password}
       POSTGRES_DB: ${DB_NAME:-jules_supervisor}
     ports:
-      - "${POSTGRES_HOST_PORT:-${POSTGRES_PORT:-5439}}:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-${POSTGRES_PORT:-5439}}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +23,7 @@ services:
     restart: unless-stopped
     command: redis-server --appendonly yes
     ports:
-      - "${REDIS_HOST_PORT:-${REDIS_PORT:-6389}}:6379"
+      - "127.0.0.1:${REDIS_HOST_PORT:-${REDIS_PORT:-6389}}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -37,7 +37,7 @@ services:
     container_name: jules-supervisor-qdrant
     restart: unless-stopped
     ports:
-      - "${QDRANT_HOST_PORT:-6333}:6333"
+      - "127.0.0.1:${QDRANT_HOST_PORT:-6333}:6333"
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:

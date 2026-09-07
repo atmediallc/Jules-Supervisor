@@ -12,6 +12,7 @@ export * from "./repositories/system-settings.repository.js";
 export * from "./repositories/sync-checkpoint.repository.js";
 export * from "./repositories/ai-memory.repository.js";
 export * from "./repositories/execution-attempt.repository.js";
+export * from "./repositories/outbox.repository.js";
 export * from "./repositories/correction.repository.js";
 export * from "./kill-switch.js";
 export * from "./secret-crypto.js";

@@ -2,10 +2,20 @@ import { randomBytes } from "node:crypto";
 import { sleep } from "@jules/shared";
 import { Redis } from "ioredis";
 
+export interface LockContext {
+  token: string;
+  signal: AbortSignal;
+  isOwned: () => boolean;
+}
+
 export interface IDistributedLock {
   acquire(resource: string, ttlMs?: number): Promise<string | null>;
   release(resource: string, token: string): Promise<boolean>;
-  withLock<T>(resource: string, fn: () => Promise<T>, ttlMs?: number): Promise<T>;
+  withLock<T>(
+    resource: string,
+    fn: (context?: LockContext) => Promise<T>,
+    ttlMs?: number,
+  ): Promise<T>;
 }
 
 export class RedisDistributedLock implements IDistributedLock {
@@ -52,28 +62,58 @@ export class RedisDistributedLock implements IDistributedLock {
     return result === 1;
   }
 
-  public async withLock<T>(resource: string, fn: () => Promise<T>, ttlMs = 15000): Promise<T> {
+  public async withLock<T>(
+    resource: string,
+    fn: (context?: LockContext) => Promise<T>,
+    ttlMs = 15000,
+  ): Promise<T> {
     const token = await this.acquire(resource, ttlMs);
     if (!token) {
       throw new Error(`Failed to acquire lock for resource: ${resource}`);
     }
 
+    const abortController = new AbortController();
+    let consecutiveRenewalFailures = 0;
+    const maxRenewalFailures = 2;
+
     // Renew the lock while the critical section runs so operations that outlive
-    // the base TTL (e.g. AI latency up to AI_TIMEOUT_MS, defaults > lock TTL)
-    // don't lose ownership to a concurrent worker mid-flight.
+    // the base TTL don't lose ownership. If ownership is lost or renewals fail,
+    // the AbortController is signaled immediately to fence the stale worker.
     const renewIntervalMs = Math.max(Math.floor(ttlMs / 3), 100);
     let renewTimer: NodeJS.Timeout | null = null;
     if (ttlMs > 0) {
       renewTimer = setInterval(() => {
-        void this.renew(resource, token, ttlMs).catch(() => {
-          // Renewal is best-effort: if it transiently fails, the lock still has
-          // its remaining TTL and the next tick will retry.
-        });
+        void this.renew(resource, token, ttlMs)
+          .then((renewed) => {
+            if (!renewed) {
+              abortController.abort(
+                new Error(`Distributed lock ownership lost for resource: ${resource}`),
+              );
+            } else {
+              consecutiveRenewalFailures = 0;
+            }
+          })
+          .catch(() => {
+            consecutiveRenewalFailures++;
+            if (consecutiveRenewalFailures >= maxRenewalFailures) {
+              abortController.abort(
+                new Error(
+                  `Distributed lock renewal failed repeatedly for resource: ${resource}`,
+                ),
+              );
+            }
+          });
       }, renewIntervalMs);
     }
 
+    const context: LockContext = {
+      token,
+      signal: abortController.signal,
+      isOwned: () => !abortController.signal.aborted,
+    };
+
     try {
-      return await fn();
+      return await fn(context);
     } finally {
       if (renewTimer) {
         clearInterval(renewTimer);
@@ -107,7 +147,11 @@ export class InMemoryDistributedLock implements IDistributedLock {
     return false;
   }
 
-  public async withLock<T>(resource: string, fn: () => Promise<T>, ttlMs = 15000): Promise<T> {
+  public async withLock<T>(
+    resource: string,
+    fn: (context?: LockContext) => Promise<T>,
+    ttlMs = 15000,
+  ): Promise<T> {
     let token = await this.acquire(resource, ttlMs);
     let attempts = 0;
     while (!token && attempts < 10) {
@@ -118,8 +162,16 @@ export class InMemoryDistributedLock implements IDistributedLock {
     if (!token) {
       throw new Error(`Failed to acquire in-memory lock for resource: ${resource}`);
     }
+
+    const abortController = new AbortController();
+    const context: LockContext = {
+      token,
+      signal: abortController.signal,
+      isOwned: () => true,
+    };
+
     try {
-      return await fn();
+      return await fn(context);
     } finally {
       await this.release(resource, token);
     }

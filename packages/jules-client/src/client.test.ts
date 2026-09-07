@@ -49,12 +49,16 @@ describe("MockJulesClient contract tests", () => {
     const session = await client.getSession("ses_test_001");
     expect(session.state).toBe("AWAITING_USER_INPUT");
 
-    const sent = await client.sendMessage("ses_test_001", {
+    const ack = await client.sendMessage("ses_test_001", {
       message: "Please proceed with token bucket rate limiter.",
     });
 
-    expect(sent.type).toBe("USER_MESSAGE");
-    expect(sent.content).toContain("token bucket");
+    expect(ack.acknowledged).toBe(true);
+
+    const activities = await client.listActivities("ses_test_001");
+    const lastActivity = activities.activities.at(-1);
+    expect(lastActivity?.type).toBe("USER_MESSAGE");
+    expect(lastActivity?.content).toContain("token bucket");
 
     const updatedSession = await client.getSession("ses_test_001");
     expect(updatedSession.state).toBe("IN_PROGRESS");
@@ -62,12 +66,17 @@ describe("MockJulesClient contract tests", () => {
 
   it("handles plan approval and records activity", async () => {
     const client = new MockJulesClient();
-    const approved = await client.approvePlan("ses_test_002", {
+    const ack = await client.approvePlan("ses_test_002", {
       approved: true,
       feedback: "Plan looks solid.",
     });
 
-    expect(approved.type).toBe("PLAN_APPROVED");
+    expect(ack.acknowledged).toBe(true);
+
+    const activities = await client.listActivities("ses_test_002");
+    const lastActivity = activities.activities.at(-1);
+    expect(lastActivity?.type).toBe("PLAN_APPROVED");
+
     const updated = await client.getSession("ses_test_002");
     expect(updated.state).toBe("IN_PROGRESS");
   });

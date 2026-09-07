@@ -253,3 +253,64 @@ export async function validateProviderUrlWithDns(
     };
   }
 }
+
+/**
+ * Creates an SSRF-guarded fetch implementation that validates both the initial
+ * destination and every redirect hop against the DNS/IP guard before dispatch.
+ */
+export function createSsrfGuardedFetch(
+  options: SsrfGuardOptions = {},
+): typeof fetch {
+  return async function ssrfGuardedFetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const urlStr =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : (input as Request).url;
+
+    const check = await validateProviderUrlWithDns(urlStr, options);
+    if (!check.isValid) {
+      throw new Error(`SSRF guard blocked request to ${urlStr}: ${check.reason}`);
+    }
+
+    let currentUrl = urlStr;
+    let currentInit: RequestInit = { ...init, redirect: "manual" };
+    let hops = 0;
+    const maxHops = 5;
+
+    while (hops < maxHops) {
+      hops++;
+      const response = await fetch(currentUrl, currentInit);
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get("location");
+        if (!location) {
+          return response;
+        }
+        const nextUrl = new URL(location, currentUrl).toString();
+        const nextCheck = await validateProviderUrlWithDns(nextUrl, options);
+        if (!nextCheck.isValid) {
+          throw new Error(
+            `SSRF guard blocked redirect to ${nextUrl}: ${nextCheck.reason}`,
+          );
+        }
+        currentUrl = nextUrl;
+        currentInit = {
+          ...currentInit,
+          method: [301, 302, 303].includes(response.status)
+            ? "GET"
+            : currentInit.method,
+          body: [301, 302, 303].includes(response.status)
+            ? undefined
+            : currentInit.body,
+        };
+        continue;
+      }
+      return response;
+    }
+    throw new Error(`SSRF guard: max redirect hops (${maxHops}) exceeded`);
+  };
+}

@@ -3,6 +3,7 @@ import { MockAiDecisionProvider } from "@jules/ai";
 import { EnvSchema } from "@jules/config";
 import {
   JulesActivity,
+  JulesMutationAck,
   JulesSession,
   MockJulesClient,
   SendMessageRequest,
@@ -25,23 +26,24 @@ class StableMockJulesClient extends MockJulesClient {
   public override async sendMessage(
     sessionId: string,
     request: SendMessageRequest,
-  ): Promise<JulesActivity> {
+  ): Promise<JulesMutationAck> {
     const err = this.hooks.shouldFail?.("sendMessage");
     if (err) throw err;
     this.hooks.onSendMessage?.(sessionId, request);
     this.sentMessages.push({ sessionId, request });
 
+    const prompt = request.prompt ?? request.message ?? "";
     const newActivity: JulesActivity = {
       id: `act_mock_${Date.now()}`,
       sessionId,
       type: "USER_MESSAGE",
-      content: request.message,
+      content: prompt,
       createTime: new Date().toISOString(),
     };
     const acts = this.activities.get(sessionId) || [];
     acts.push(newActivity);
     this.activities.set(sessionId, acts);
-    return newActivity;
+    return { acknowledged: true };
   }
 }
 

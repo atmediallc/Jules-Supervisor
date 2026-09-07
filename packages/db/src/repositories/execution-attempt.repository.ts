@@ -1,4 +1,4 @@
-import { eq, and, lt, desc, inArray } from "drizzle-orm";
+import { eq, and, lt, desc, inArray, or, sql } from "drizzle-orm";
 import { Database } from "../client.js";
 import { executionAttempts, ExecutionAttemptStatus } from "../schema.js";
 
@@ -12,7 +12,7 @@ export interface CreateExecutionAttemptInput {
 }
 
 /**
- * Durable execution-attempt ledger (H3).
+ * Durable execution-attempt ledger (H3 / R03).
  *
  * A worker may apply an external effect and die before recording success.
  * The reconciler reclaims stranded attempts ("stale" = past their lease) for
@@ -21,6 +21,8 @@ export interface CreateExecutionAttemptInput {
  *
  * All claim/recover transitions are atomic UPDATE ... WHERE status=... guards so
  * concurrent reconcilers cannot claim the same attempt twice.
+ * Fencing tokens and claim owner checks prevent stale workers from overwriting
+ * state after losing their lease.
  */
 export class ExecutionAttemptRepository {
   constructor(private readonly db: Database) {}
@@ -34,6 +36,7 @@ export class ExecutionAttemptRepository {
         decisionId: input.decisionId,
         attemptNumber: input.attemptNumber,
         status: "PENDING",
+        fencingToken: 1,
         clientToken: input.clientToken ?? null,
       })
       .returning();
@@ -46,7 +49,13 @@ export class ExecutionAttemptRepository {
     const expiry = new Date(now.getTime() + leaseMs);
     const updated = await this.db
       .update(executionAttempts)
-      .set({ status: "CLAIMED", claimOwner: owner, claimExpiry: expiry, startedAt: now })
+      .set({
+        status: "CLAIMED",
+        claimOwner: owner,
+        claimExpiry: expiry,
+        fencingToken: sql`${executionAttempts.fencingToken} + 1`,
+        startedAt: now,
+      })
       .where(and(eq(executionAttempts.id, id), eq(executionAttempts.status, "PENDING")))
       .returning();
     return updated[0] ?? null;
@@ -66,6 +75,7 @@ export class ExecutionAttemptRepository {
         status: "CLAIMED",
         claimOwner: owner,
         claimExpiry: expiry,
+        fencingToken: sql`${executionAttempts.fencingToken} + 1`,
         startedAt: now,
         errorCategory: null,
         errorMessage: null,
@@ -73,8 +83,13 @@ export class ExecutionAttemptRepository {
       .where(
         and(
           eq(executionAttempts.id, id),
-          lt(executionAttempts.claimExpiry, now),
-          inArray(executionAttempts.status, ["CLAIMED", "EXECUTING"]),
+          or(
+            and(
+              inArray(executionAttempts.status, ["CLAIMED", "EXECUTING"]),
+              lt(executionAttempts.claimExpiry, now),
+            ),
+            eq(executionAttempts.status, "PENDING"),
+          ),
         ),
       )
       .returning();
@@ -82,18 +97,41 @@ export class ExecutionAttemptRepository {
   }
 
   /** Transition a claimed attempt into EXECUTING (before dispatch). */
-  async markExecuting(id: string, owner: string) {
+  async markExecuting(id: string, owner: string, fencingToken?: number) {
+    const conditions = [
+      eq(executionAttempts.id, id),
+      eq(executionAttempts.claimOwner, owner),
+      eq(executionAttempts.status, "CLAIMED"),
+    ];
+    if (fencingToken !== undefined) {
+      conditions.push(eq(executionAttempts.fencingToken, fencingToken));
+    }
     const updated = await this.db
       .update(executionAttempts)
       .set({ status: "EXECUTING" })
-      .where(and(eq(executionAttempts.id, id), eq(executionAttempts.claimOwner, owner)))
+      .where(and(...conditions))
       .returning();
     return updated[0] ?? null;
   }
 
-  /** Confirm the external effect applied successfully. */
-  async markSucceeded(id: string, externalResult?: string | null) {
-    await this.db
+  /** Confirm the external effect applied successfully with owner verification. */
+  async markSucceeded(
+    id: string,
+    owner?: string,
+    externalResult?: string | null,
+    fencingToken?: number,
+  ) {
+    const conditions = [
+      eq(executionAttempts.id, id),
+      inArray(executionAttempts.status, ["CLAIMED", "EXECUTING"]),
+    ];
+    if (owner !== undefined) {
+      conditions.push(eq(executionAttempts.claimOwner, owner));
+    }
+    if (fencingToken !== undefined) {
+      conditions.push(eq(executionAttempts.fencingToken, fencingToken));
+    }
+    const updated = await this.db
       .update(executionAttempts)
       .set({
         status: "SUCCEEDED",
@@ -102,20 +140,32 @@ export class ExecutionAttemptRepository {
         errorCategory: null,
         errorMessage: null,
       })
-      .where(
-        and(
-          eq(executionAttempts.id, id),
-          inArray(executionAttempts.status, ["CLAIMED", "EXECUTING"]),
-        ),
-      );
+      .where(and(...conditions))
+      .returning();
+    return updated[0] ?? null;
   }
 
   /**
-   * Mark the effect as FAILED. `category` is TRANSIENT (safe to retry) or
-   * PERMANENT (do not retry; escalate to human).
+   * Mark the effect as FAILED with owner verification.
    */
-  async markFailed(id: string, category: "TRANSIENT" | "PERMANENT", message?: string | null) {
-    await this.db
+  async markFailed(
+    id: string,
+    category: "TRANSIENT" | "PERMANENT",
+    message?: string | null,
+    owner?: string,
+    fencingToken?: number,
+  ) {
+    const conditions = [
+      eq(executionAttempts.id, id),
+      inArray(executionAttempts.status, ["CLAIMED", "EXECUTING"]),
+    ];
+    if (owner !== undefined) {
+      conditions.push(eq(executionAttempts.claimOwner, owner));
+    }
+    if (fencingToken !== undefined) {
+      conditions.push(eq(executionAttempts.fencingToken, fencingToken));
+    }
+    const updated = await this.db
       .update(executionAttempts)
       .set({
         status: "FAILED",
@@ -123,22 +173,32 @@ export class ExecutionAttemptRepository {
         errorCategory: category,
         errorMessage: message ?? null,
       })
-      .where(
-        and(
-          eq(executionAttempts.id, id),
-          inArray(executionAttempts.status, ["CLAIMED", "EXECUTING"]),
-        ),
-      );
+      .where(and(...conditions))
+      .returning();
+    return updated[0] ?? null;
   }
 
   /**
-   * The external call returned without a definitive result (timeout, ambiguous
-   * response, connection dropped mid-flight). The effect MAY or MAY NOT have
-   * applied. Never auto-retry to a fresh token; escalate to human, or reconcile
-   * against live external state with the same token.
+   * Mark ambiguous outcome with owner verification.
    */
-  async markUnknownEffect(id: string, category: "AMBIGUOUS", message?: string | null) {
-    await this.db
+  async markUnknownEffect(
+    id: string,
+    category: "AMBIGUOUS",
+    message?: string | null,
+    owner?: string,
+    fencingToken?: number,
+  ) {
+    const conditions = [
+      eq(executionAttempts.id, id),
+      inArray(executionAttempts.status, ["CLAIMED", "EXECUTING"]),
+    ];
+    if (owner !== undefined) {
+      conditions.push(eq(executionAttempts.claimOwner, owner));
+    }
+    if (fencingToken !== undefined) {
+      conditions.push(eq(executionAttempts.fencingToken, fencingToken));
+    }
+    const updated = await this.db
       .update(executionAttempts)
       .set({
         status: "UNKNOWN_EFFECT",
@@ -146,12 +206,9 @@ export class ExecutionAttemptRepository {
         errorCategory: category,
         errorMessage: message ?? null,
       })
-      .where(
-        and(
-          eq(executionAttempts.id, id),
-          inArray(executionAttempts.status, ["CLAIMED", "EXECUTING"]),
-        ),
-      );
+      .where(and(...conditions))
+      .returning();
+    return updated[0] ?? null;
   }
 
   /** Flag an attempt for human reconciliation (e.g. max attempts reached). */
@@ -167,16 +224,32 @@ export class ExecutionAttemptRepository {
     return this.db.select().from(executionAttempts).where(eq(executionAttempts.status, "EXECUTING"));
   }
 
-  /** Stale (past lease) CLAIMED/EXECUTING attempts that need reconciliation. */
+  /**
+   * Stale attempts that need reconciliation:
+   * - CLAIMED / EXECUTING whose claimExpiry has passed
+   * - PENDING created before staleThreshold (stranded worker crash before claim)
+   */
   async findStaleAttempts(
-    _leaseMs?: number,
+    leaseMs = 60000,
     statuses: ExecutionAttemptStatusValue[] = ["CLAIMED", "EXECUTING"],
   ) {
     const now = new Date();
+    const staleThreshold = new Date(now.getTime() - leaseMs);
     return this.db
       .select()
       .from(executionAttempts)
-      .where(and(lt(executionAttempts.claimExpiry, now), inArray(executionAttempts.status, statuses)));
+      .where(
+        or(
+          and(
+            lt(executionAttempts.claimExpiry, now),
+            inArray(executionAttempts.status, statuses),
+          ),
+          and(
+            eq(executionAttempts.status, "PENDING"),
+            lt(executionAttempts.createdAt, staleThreshold),
+          ),
+        ),
+      );
   }
 
   async listByDecision(decisionId: string) {

@@ -17,6 +17,7 @@ import {
   SessionRepository,
   SyncCheckpointRepository,
   SystemSettingsRepository,
+  OutboxRepository,
 } from "@jules/db";
 import { JulesApiClient, MockJulesClient } from "@jules/jules-client";
 import { logger } from "@jules/observability";
@@ -27,6 +28,8 @@ import { MemoryContextService } from "./memory-context.js";
 import { SemanticMemoryService } from "./semantic-memory.js";
 import { SupervisionPipeline } from "./pipeline.js";
 import { ExecutionReconciler } from "./reconciler.js";
+import { OutboxDispatcher } from "./outbox-dispatcher.js";
+import { RuntimeConfigSynchronizer } from "./runtime-config.js";
 import { SessionWatcher } from "./poller.js";
 import { BullMqSupervisorQueue, DirectSupervisorQueue } from "./queue.js";
 import { startHealthServer, stopHealthServer, updateHealth } from "./health.js";
@@ -38,8 +41,8 @@ async function main() {
 
   // 2. Connect to DB and load admin-managed settings overrides
   const db = getDatabase(baseConfig.DATABASE_URL);
+  const settingsRepo = new SystemSettingsRepository(db);
   try {
-    const settingsRepo = new SystemSettingsRepository(db);
     const dbOverrides = await settingsRepo.getAsMap();
     if (Object.keys(dbOverrides).length > 0) {
       setDbOverrides(dbOverrides);
@@ -227,6 +230,45 @@ async function main() {
   }, config.EXECUTION_RECONCILE_INTERVAL_MS);
   reconcileTimer.unref?.();
 
+  // R02 / R03: Durable Outbox Dispatcher — processes human-sanctioned actions.
+  const outboxRepo = new OutboxRepository(db);
+  const outboxDispatcher = new OutboxDispatcher({
+    config,
+    julesClient,
+    outboxRepo,
+    executionAttemptRepo,
+    decisionRepo,
+    sessionRepo,
+    killSwitch,
+    workerId,
+    lock,
+  });
+  let outboxTimer: ReturnType<typeof setInterval> | null = null;
+  outboxTimer = setInterval(() => {
+    outboxDispatcher.dispatchOnce().catch((err) => {
+      logger.warn("Outbox dispatcher pass failed", { error: (err as Error).message });
+    });
+  }, 2000);
+  outboxTimer.unref?.();
+
+  // R04: Dynamic Runtime Configuration Synchronizer
+  const configSync = new RuntimeConfigSynchronizer(
+    settingsRepo,
+    workerId,
+    async (newConfig) => {
+      const reloadedAiProvider = createAiProvider(newConfig);
+      pipeline.updateConfig(newConfig, reloadedAiProvider);
+      watcher.updateConfig(newConfig);
+    },
+  );
+  let configSyncTimer: ReturnType<typeof setInterval> | null = null;
+  configSyncTimer = setInterval(() => {
+    configSync.syncOnce().catch((err) => {
+      logger.warn("Runtime config sync pass failed", { error: (err as Error).message });
+    });
+  }, 5000);
+  configSyncTimer.unref?.();
+
   // Periodic semantic memory consolidation (expire / stale / reindex /
   // promote / archive) — best-effort, interval from config.
   let consolidationTimer: ReturnType<typeof setInterval> | null = null;
@@ -317,6 +359,8 @@ async function main() {
       //    cannot run concurrently with teardown.
       if (reconcileTimer) clearInterval(reconcileTimer);
       if (consolidationTimer) clearInterval(consolidationTimer);
+      if (outboxTimer) clearInterval(outboxTimer);
+      if (configSyncTimer) clearInterval(configSyncTimer);
 
       // 1. Do not pick up new work.
       await watcher.stop();

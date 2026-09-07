@@ -10,13 +10,15 @@ export class SessionWatcher {
   private abortController: AbortController | null = null;
   private pollingTimer: NodeJS.Timeout | null = null;
   private readonly checkpointRepo: SyncCheckpointRepository | null;
+  private config: AppConfig;
 
   constructor(
-    private readonly config: AppConfig,
+    config: AppConfig,
     private readonly julesClient: IJulesClient,
     private readonly pipeline: SupervisionPipeline,
     checkpointRepo?: SyncCheckpointRepository,
   ) {
+    this.config = config;
     this.checkpointRepo = checkpointRepo ?? null;
   }
 
@@ -38,6 +40,11 @@ export class SessionWatcher {
     if (this.pollingTimer) clearTimeout(this.pollingTimer);
     if (this.abortController) this.abortController.abort();
     logger.info("Jules Session Watcher stopped.");
+  }
+
+  /** Dynamically reconfigure poller settings at runtime (R04). */
+  public updateConfig(newConfig: AppConfig): void {
+    this.config = newConfig;
   }
 
   private async pollLoop(): Promise<void> {
@@ -84,8 +91,17 @@ export class SessionWatcher {
     if (this.config.SUPERVISOR_MODE === "DISABLED") return;
     let pageToken: string | undefined;
     const seenPageTokens = new Set<string>();
+    const MAX_PAGE_CEILING = 100;
+
     do {
       if (signal?.aborted) break;
+      if (seenPageTokens.size >= MAX_PAGE_CEILING) {
+        logger.warn(
+          `Jules session pagination reached safety ceiling of ${MAX_PAGE_CEILING} pages; halting session scan`,
+        );
+        break;
+      }
+
       const listResponse = await this.julesClient.listSessions({ pageToken }, signal);
       const sessions = listResponse.sessions;
 
@@ -127,10 +143,17 @@ export class SessionWatcher {
     let pageToken: string | undefined;
     let highWaterMark: string | null = null;
     const seenPageTokens = new Set<string>();
+    const MAX_PAGE_CEILING = 100;
 
     // Iterate until the API returns no next page token.
     for (;;) {
       if (signal?.aborted) break;
+      if (seenPageTokens.size >= MAX_PAGE_CEILING) {
+        logger.warn(
+          `Jules activity pagination reached safety ceiling of ${MAX_PAGE_CEILING} pages for session ${session.id}; halting activity scan`,
+        );
+        break;
+      }
 
       const activitiesRes = await this.julesClient.listActivities(
         session.id,

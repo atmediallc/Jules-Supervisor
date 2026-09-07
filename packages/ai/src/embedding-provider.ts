@@ -8,6 +8,7 @@
 import { MemoryEmbeddingError, MemoryConfigurationError } from "@jules/core";
 import { logger, metrics } from "@jules/observability";
 import OpenAI from "openai";
+import { createSsrfGuardedFetch, validateProviderUrl } from "./ssrf-guard.js";
 
 export interface EmbeddingRequest {
   content: string;
@@ -61,11 +62,22 @@ export class OpenAIEmbeddingProvider implements IEmbeddingProvider {
     if (!config.apiKey) {
       throw new MemoryConfigurationError("Embedding API key is not configured");
     }
+
+    const ssrfCheck = validateProviderUrl(config.baseUrl);
+    if (!ssrfCheck.isValid) {
+      throw new MemoryConfigurationError(
+        `Embedding Provider URL blocked by SSRF Guard: ${ssrfCheck.reason}`,
+      );
+    }
+
+    const ssrfFetch = createSsrfGuardedFetch();
+
     this.client = new OpenAI({
       baseURL: config.baseUrl,
       apiKey: config.apiKey,
       timeout: config.timeoutMs,
       maxRetries: 0, // bounded retry lives in the memory engine, not the SDK
+      fetch: ssrfFetch as unknown as typeof fetch,
     });
   }
 

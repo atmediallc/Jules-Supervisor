@@ -1,7 +1,21 @@
 import { CanonicalDomainEvent } from "@jules/core";
-import { JulesActivity } from "@jules/jules-client";
+import {
+  JulesActivity,
+  JulesActivityDto,
+  normalizeActivityDto,
+} from "@jules/jules-client";
 
-export function normalizeJulesActivity(activity: JulesActivity): CanonicalDomainEvent | null {
+export function normalizeJulesActivity(
+  rawOrNormalized: JulesActivity | JulesActivityDto,
+  fallbackSessionId?: string,
+): CanonicalDomainEvent | null {
+  const activity: JulesActivity =
+    "rawPayload" in rawOrNormalized &&
+    rawOrNormalized.type &&
+    rawOrNormalized.sessionId
+      ? (rawOrNormalized as JulesActivity)
+      : normalizeActivityDto(rawOrNormalized as JulesActivityDto, fallbackSessionId);
+
   const timestamp = activity.createTime || new Date().toISOString();
 
   switch (activity.type) {
@@ -47,6 +61,7 @@ export function normalizeJulesActivity(activity: JulesActivity): CanonicalDomain
       };
 
     case "TOOL_CALL":
+    case "TOOL_EXECUTION":
       return {
         type: "TOOL_EXECUTION",
         sessionId: activity.sessionId,

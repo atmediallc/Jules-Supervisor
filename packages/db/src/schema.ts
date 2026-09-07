@@ -282,6 +282,7 @@ export const executionAttempts = pgTable(
       .$type<ExecutionAttemptStatus>(),
     claimOwner: varchar("claim_owner", { length: 128 }),
     claimExpiry: timestamp("claim_expiry", { withTimezone: true }),
+    fencingToken: integer("fencing_token").notNull().default(0),
     clientToken: varchar("client_token", { length: 256 }),
     externalResult: text("external_result"),
     errorCategory: varchar("error_category", { length: 32 }), // TRANSIENT|PERMANENT|AMBIGUOUS
@@ -301,8 +302,62 @@ export const executionAttempts = pgTable(
   ],
 );
 
-export const ExecutionAttemptStatus = ["PENDING", "CLAIMED", "EXECUTING", "SUCCEEDED", "FAILED", "UNKNOWN_EFFECT", "NEEDS_RECONCILIATION"] as const;
+export const ExecutionAttemptStatus = [
+  "PENDING",
+  "CLAIMED",
+  "EXECUTING",
+  "SUCCEEDED",
+  "FAILED",
+  "UNKNOWN_EFFECT",
+  "NEEDS_RECONCILIATION",
+] as const;
 export type ExecutionAttemptStatus = (typeof ExecutionAttemptStatus)[number];
+
+// ── Durable Outbox / Dispatch Ledger (R02 / R03) ─────────────────────────
+// Atomically staged alongside human approvals in the same database transaction.
+// Guarantees an approved action is never lost and survives worker crashes between
+// any two durable writes. Workers claim records using leases and fencing tokens.
+export const OutboxStatus = [
+  "PENDING",
+  "CLAIMED",
+  "EXECUTING",
+  "COMPLETED",
+  "FAILED",
+  "UNCERTAIN",
+] as const;
+export type OutboxStatus = (typeof OutboxStatus)[number];
+
+export const outbox = pgTable(
+  "outbox",
+  {
+    id: varchar("id", { length: 128 }).primaryKey(),
+    sessionId: varchar("session_id", { length: 128 })
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    decisionId: varchar("decision_id", { length: 128 })
+      .notNull()
+      .references(() => decisions.id, { onDelete: "cascade" }),
+    action: varchar("action", { length: 64 }).notNull(),
+    payload: text("payload"),
+    status: varchar("status", { length: 32 })
+      .notNull()
+      .default("PENDING")
+      .$type<OutboxStatus>(),
+    claimOwner: varchar("claim_owner", { length: 128 }),
+    claimExpiry: timestamp("claim_expiry", { withTimezone: true }),
+    fencingToken: integer("fencing_token").notNull().default(0),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(3),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_outbox_status_expiry").on(table.status, table.claimExpiry),
+    index("idx_outbox_decision_id").on(table.decisionId),
+    index("idx_outbox_session_id").on(table.sessionId),
+  ],
+);
 
 // ── Durable Corrections (H5: correction-loop dedup survives restart) ─────
 // Persisted record of each correction instruction submitted to a session so the

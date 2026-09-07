@@ -6,15 +6,21 @@ import {
   ApprovePlanRequest,
   ApprovePlanRequestSchema,
   JulesActivity,
-  JulesActivitySchema,
+  JulesActivityDtoSchema,
+  JulesMutationAck,
+  JulesMutationAckSchema,
   JulesSession,
-  JulesSessionSchema,
+  JulesSessionDtoSchema,
+  JulesWireApprovePlanRequest,
+  JulesWireSendMessageRequest,
   ListActivitiesResponse,
-  ListActivitiesResponseSchema,
+  ListActivitiesResponseDtoSchema,
   ListSessionsResponse,
-  ListSessionsResponseSchema,
+  ListSessionsResponseDtoSchema,
   SendMessageRequest,
   SendMessageRequestSchema,
+  normalizeActivityDto,
+  normalizeSessionDto,
 } from "./schemas.js";
 
 export interface JulesClientOptions {
@@ -41,12 +47,12 @@ export interface IJulesClient {
     sessionId: string,
     request: SendMessageRequest,
     signal?: AbortSignal,
-  ): Promise<JulesActivity>;
+  ): Promise<JulesMutationAck>;
   approvePlan(
     sessionId: string,
-    request: ApprovePlanRequest,
+    request?: ApprovePlanRequest,
     signal?: AbortSignal,
-  ): Promise<JulesActivity>;
+  ): Promise<JulesMutationAck>;
 }
 
 export class JulesApiClient implements IJulesClient {
@@ -119,8 +125,16 @@ export class JulesApiClient implements IJulesClient {
           throw error;
         }
 
-        const json = await response.json();
-        return json as T;
+        if (response.status === 204) {
+          return { acknowledged: true } as T;
+        }
+
+        const bodyText = await response.text();
+        if (!bodyText || bodyText.trim() === "" || bodyText.trim() === "{}") {
+          return { acknowledged: true } as T;
+        }
+
+        return JSON.parse(bodyText) as T;
       } catch (err: unknown) {
         if (customSignal?.aborted) {
           throw new Error("Jules API request aborted by caller");
@@ -163,7 +177,11 @@ export class JulesApiClient implements IJulesClient {
 
     const queryString = query.toString() ? `?${query.toString()}` : "";
     const raw = await this.request<unknown>(`/sessions${queryString}`, { method: "GET" }, signal);
-    return ListSessionsResponseSchema.parse(raw);
+    const parsed = ListSessionsResponseDtoSchema.parse(raw);
+    return {
+      sessions: parsed.sessions.map(normalizeSessionDto),
+      nextPageToken: parsed.nextPageToken,
+    };
   }
 
   public async getSession(sessionId: string, signal?: AbortSignal): Promise<JulesSession> {
@@ -172,7 +190,8 @@ export class JulesApiClient implements IJulesClient {
       { method: "GET" },
       signal,
     );
-    return JulesSessionSchema.parse(raw);
+    const parsed = JulesSessionDtoSchema.parse(raw);
+    return normalizeSessionDto(parsed);
   }
 
   public async listActivities(
@@ -190,7 +209,11 @@ export class JulesApiClient implements IJulesClient {
       { method: "GET" },
       signal,
     );
-    return ListActivitiesResponseSchema.parse(raw);
+    const parsed = ListActivitiesResponseDtoSchema.parse(raw);
+    return {
+      activities: parsed.activities.map((a) => normalizeActivityDto(a, sessionId)),
+      nextPageToken: parsed.nextPageToken,
+    };
   }
 
   public async getActivity(
@@ -203,40 +226,46 @@ export class JulesApiClient implements IJulesClient {
       { method: "GET" },
       signal,
     );
-    return JulesActivitySchema.parse(raw);
+    const parsed = JulesActivityDtoSchema.parse(raw);
+    return normalizeActivityDto(parsed, sessionId);
   }
 
   public async sendMessage(
     sessionId: string,
     request: SendMessageRequest,
     signal?: AbortSignal,
-  ): Promise<JulesActivity> {
+  ): Promise<JulesMutationAck> {
     const validRequest = SendMessageRequestSchema.parse(request);
+    const prompt = validRequest.prompt ?? validRequest.message!;
+    const wirePayload: JulesWireSendMessageRequest = { prompt };
     const raw = await this.request<unknown>(
       `/sessions/${encodeURIComponent(sessionId)}:sendMessage`,
       {
         method: "POST",
-        body: JSON.stringify(validRequest),
+        body: JSON.stringify(wirePayload),
       },
       signal,
     );
-    return JulesActivitySchema.parse(raw);
+    return JulesMutationAckSchema.parse(raw ?? { acknowledged: true });
   }
 
   public async approvePlan(
     sessionId: string,
-    request: ApprovePlanRequest,
+    request?: ApprovePlanRequest,
     signal?: AbortSignal,
-  ): Promise<JulesActivity> {
-    const validRequest = ApprovePlanRequestSchema.parse(request);
+  ): Promise<JulesMutationAck> {
+    if (request) {
+      ApprovePlanRequestSchema.parse(request);
+    }
+    const wirePayload: JulesWireApprovePlanRequest = {};
     const raw = await this.request<unknown>(
       `/sessions/${encodeURIComponent(sessionId)}:approvePlan`,
       {
         method: "POST",
-        body: JSON.stringify(validRequest),
+        body: JSON.stringify(wirePayload),
       },
       signal,
     );
-    return JulesActivitySchema.parse(raw);
+    return JulesMutationAckSchema.parse(raw ?? { acknowledged: true });
   }
 }

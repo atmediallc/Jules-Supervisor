@@ -43,6 +43,13 @@
       "when": 1788479600870,
       "tag": "0005_execution_attempts_corrections",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788700000000,
+      "tag": "0006_durable_outbox_fencing",
+      "breakpoints": true
     }
   ]
 }

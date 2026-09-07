@@ -8,6 +8,7 @@ import {
   AuditRepository,
   BudgetRepository,
   DecisionRepository,
+  OutboxRepository,
   getDatabase,
   runInTransaction,
 } from "@jules/db";
@@ -95,6 +96,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
         const txDecisionRepo = new DecisionRepository(tx);
         const txBudgetRepo = new BudgetRepository(tx);
         const txAuditRepo = new AuditRepository(tx);
+        const txOutboxRepo = new OutboxRepository(tx);
 
         const u = await txApprovalRepo.updateStatus(
           id,
@@ -133,6 +135,27 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
               u.decisionId,
               u.proposedResponse ?? "",
             );
+          }
+
+          // R02: Durable Outbox Dispatch Model
+          // When an operator sanctions an action, stage the outbox record
+          // atomically in the SAME transaction. If the worker crashes before
+          // dispatch, the durable outbox item is recovered and executed.
+          if (parsed.data.status === "APPROVED" || parsed.data.status === "EDITED") {
+            const approvedPayload =
+              parsed.data.modifiedResponse ?? u.proposedResponse ?? "";
+            await txDecisionRepo.markExecuted(
+              u.decisionId,
+              "DISPATCH_REQUESTED",
+              parsed.data.comment ?? `Operator sanctioned action ${u.action}`,
+            );
+            await txOutboxRepo.create({
+              id: `outbox_${randomUUID()}`,
+              sessionId: u.sessionId,
+              decisionId: u.decisionId,
+              action: u.action,
+              payload: approvedPayload,
+            });
           }
 
           await txAuditRepo.record({
