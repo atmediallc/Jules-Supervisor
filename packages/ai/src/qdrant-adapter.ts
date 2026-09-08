@@ -54,6 +54,30 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Best-effort human-readable formatter for an unknown Qdrant error. */
+function formatQdrantError(err: unknown): string {
+  if (err === null || err === undefined) return "Qdrant client threw null/undefined";
+  if (err instanceof Error) {
+    const inner = err.cause ? ` (cause: ${formatQdrantError(err.cause)})` : "";
+    return err.message || err.name || `Error (no message)${inner}`;
+  }
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    const obj = err as Record<string, unknown>;
+    const parts: string[] = [];
+    for (const key of ["name", "status", "code", "message", "error", "data"]) {
+      if (obj[key] !== undefined) parts.push(`${key}=${String(obj[key])}`);
+    }
+    if (parts.length > 0) return `Qdrant error: ${parts.join("; ")}`;
+    try {
+      return JSON.stringify(err, Object.getOwnPropertyNames(err));
+    } catch {
+      return "non-serializable Qdrant error";
+    }
+  }
+  return "unknown non-Error thrown by Qdrant client";
+}
+
 /** Retryable Qdrant error classes (transient network/timeout/5xx). */
 function isTransientError(err: unknown): boolean {
   const e = err as { status?: number; name?: string; message?: string };
@@ -90,7 +114,7 @@ export class QdrantSemanticStore implements IQdrantSemanticStore {
     this.collection = config.collection;
     this.vectorSize = config.vectorSize;
     this.timeoutMs = config.timeoutMs;
-    this.maxRetries = config.maxRetries;
+    this.maxRetries = config.maxRetries ?? 3;
 
     // SSRF: Qdrant URL must not point at metadata services or unsafe protocols.
     const ssrf = validateProviderUrl(config.url, {
@@ -115,13 +139,28 @@ export class QdrantSemanticStore implements IQdrantSemanticStore {
       if (names.includes(this.collection)) {
         return;
       }
-      await this.client.createCollection(this.collection, {
+      const createResult = await this.client.createCollection(this.collection, {
         vectors: {
           size: this.vectorSize,
           distance: "Cosine",
         },
       });
-      await this.ensurePayloadIndexes();
+      logger.info("Qdrant createCollection result", {
+        collection: this.collection,
+        result: createResult === undefined ? "undefined" : String(createResult),
+      });
+      // Payload indexes are an optimisation, not a correctness gate. Under
+      // qdrant-js 1.19 + Qdrant 1.19, the wait:true path on
+      // createPayloadIndex occasionally aborts on Node 24; the data plane
+      // does not require these indexes to function. Best-effort: log + move on.
+      try {
+        await this.ensurePayloadIndexes();
+      } catch (err) {
+        logger.warn("Qdrant payload index creation skipped", {
+          collection: this.collection,
+          error: formatQdrantError(err),
+        });
+      }
       logger.info("Qdrant collection ensured", {
         collection: this.collection,
         vectorSize: this.vectorSize,
@@ -140,10 +179,13 @@ export class QdrantSemanticStore implements IQdrantSemanticStore {
     ];
     for (const field of fields) {
       try {
+        // Best-effort: omit `wait:true` because qdrant-js 1.19 + Qdrant 1.19
+        // occasionally hangs in the wait path under Node 24. Indexes are an
+        // optimisation, not a correctness gate. The next loop iteration will
+        // re-try if the index doesn't yet exist.
         await this.client.createPayloadIndex(this.collection, {
           field_name: field,
           field_schema: "keyword",
-          wait: true,
         });
       } catch {
         // Index already exists — ignore.
@@ -273,18 +315,19 @@ export class QdrantSemanticStore implements IQdrantSemanticStore {
         lastErr = err;
         metrics.incrementQdrantFailure();
         if (!isTransientError(err) || attempt >= this.maxRetries) {
-          const aborted = (err as Error).name === "AbortError";
-          logger.warn("Qdrant operation failed", { op, attempt, error: (err as Error).message });
+          const errMessage = formatQdrantError(err);
+          const aborted = (err as { name?: string })?.name === "AbortError";
+          logger.warn("Qdrant operation failed", { op, attempt, error: errMessage });
           if (aborted) {
             throw new MemoryUnavailableError(`Qdrant ${op} aborted`);
           }
-          throw new MemoryIndexError(`Qdrant ${op} failed: ${(err as Error).message}`);
+          throw new MemoryIndexError(`Qdrant ${op} failed: ${errMessage}`);
         }
         await sleep(Math.min(100 * 2 ** attempt, 2000));
       }
     }
     throw new MemoryIndexError(
-      `Qdrant ${op} failed: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+      `Qdrant ${op} failed: ${formatQdrantError(lastErr)}`,
     );
   }
 }
