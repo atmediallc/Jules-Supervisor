@@ -22,7 +22,7 @@
     "@jules/policy": "workspace:*",
     "@jules/shared": "workspace:*",
     "clsx": "^2.1.1",
-    "lucide-react": "^1.35.0",
+    "lucide-react": "^1.44.0",
     "next": "^15.1.7",
     "next-auth": "^4.24.11",
     "next-intl": "^4.14.2",
