@@ -7,6 +7,8 @@
  * which is the deployment model for this monorepo.
  */
 
+import type { Redis } from "ioredis";
+
 interface Bucket {
   count: number;
   windowStart: number;
@@ -46,8 +48,6 @@ export function isRateLimited(key: string, kind: RateLimitKind): boolean {
   if (buckets.size >= MAX_BUCKETS) pruneExpired(windowMs);
 
   if (!bucket || now - bucket.windowStart >= windowMs) {
-    // Never grow beyond the cap or evict an active bucket (which would reset
-    // its allowance). Refuse new identities until an existing window expires.
     if (!buckets.has(key) && buckets.size >= MAX_BUCKETS) return true;
     buckets.set(key, { count: 1, windowStart: now });
     return false;
@@ -55,6 +55,46 @@ export function isRateLimited(key: string, kind: RateLimitKind): boolean {
 
   bucket.count++;
   return bucket.count > limit;
+}
+
+/**
+ * Redis-backed distributed atomic rate limiter using an atomic Lua script.
+ * Enforces limits across multiple web instances / serverless workers.
+ *
+ * Lua Script ensures:
+ * 1. INCR the counter key
+ * 2. If it's the first hit, set PEXPIRE
+ * 3. Returns the current counter value
+ */
+const REDIS_RATE_LIMIT_LUA = `
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return current
+`;
+
+export async function isRateLimitedDistributed(
+  redis: Redis,
+  key: string,
+  kind: RateLimitKind,
+): Promise<boolean> {
+  const policy = RATE_LIMIT_POLICY[kind];
+  const redisKey = `ratelimit:${key}`;
+
+  try {
+    const current = (await redis.eval(
+      REDIS_RATE_LIMIT_LUA,
+      1,
+      redisKey,
+      String(policy.windowMs),
+    )) as number;
+
+    return current > policy.limit;
+  } catch {
+    // Fail-safe: fall back to local in-memory limiter on Redis error
+    return isRateLimited(key, kind);
+  }
 }
 
 /** Best-effort client IP, preferring the left-most untrusted proxy value. */

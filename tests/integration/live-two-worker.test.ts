@@ -24,7 +24,6 @@ import {
   sessions,
 } from "../../packages/db/src/schema";
 import { OutboxRepository } from "../../packages/db/src/repositories/outbox.repository";
-import { ExecutionAttemptRepository } from "../../packages/db/src/repositories/execution-attempt.repository";
 import { RedisDistributedLock } from "../../apps/worker/src/lock";
 
 const DATABASE_URL =
@@ -40,7 +39,6 @@ const redisLockA = new RedisDistributedLock(redis);
 const redisLockB = new RedisDistributedLock(redis);
 
 const outboxRepo = new OutboxRepository(db as never);
-const attemptRepo = new ExecutionAttemptRepository(db as never);
 
 const SESSION_ID = `ses_2w_live_${Date.now()}`;
 const ACTIVITY_ID = `act_2w_live_${Date.now()}`;

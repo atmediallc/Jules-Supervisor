@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { Database } from "../client.js";
 import { systemSettings } from "../schema.js";
-import { encryptSecret, decryptSecret } from "../secret-crypto.js";
+import { encryptSecret, decryptSecret, rotateSecretCiphertext } from "../secret-crypto.js";
 
 export type SystemSettingInsert = typeof systemSettings.$inferInsert;
 export type SystemSettingSelect = typeof systemSettings.$inferSelect;
@@ -94,5 +94,68 @@ export class SystemSettingsRepository {
       map[row.key] = row.value;
     }
     return map;
+  }
+
+  /**
+   * One-way, idempotent migration: finds all rows with isSecret=true that are
+   * stored as plaintext (do not start with enc:v1:), and encrypts them using the
+   * current SETTINGS_ENCRYPTION_KEY.
+   *
+   * Returns the count of migrated rows.
+   */
+  public async migrateLegacyPlaintextSecrets(): Promise<number> {
+    const rawRows = await this.db
+      .select()
+      .from(systemSettings)
+      .where(eq(systemSettings.isSecret, true));
+
+    let migrated = 0;
+    for (const row of rawRows) {
+      if (!row.value.startsWith("enc:v1:")) {
+        const encrypted = encryptSecret(row.value);
+        await this.db
+          .update(systemSettings)
+          .set({ value: encrypted, updatedAt: new Date() })
+          .where(eq(systemSettings.key, row.key));
+        migrated++;
+      }
+    }
+    return migrated;
+  }
+
+  /**
+   * Rotates encryption keys for all secret rows in system_settings.
+   * Runs inside a single database transaction:
+   * 1. Reads all rows with isSecret=true
+   * 2. Decrypts with oldKey and re-encrypts with newKey
+   * 3. Updates all rows atomically
+   * If any decryption or encryption fails, transaction rolls back leaving data intact.
+   *
+   * Returns count of rotated rows.
+   */
+  public async rotateEncryptionKey(oldKey: string, newKey: string): Promise<number> {
+    const rawRows = await this.db
+      .select()
+      .from(systemSettings)
+      .where(eq(systemSettings.isSecret, true));
+
+    if (rawRows.length === 0) return 0;
+
+    // Prepare rotated updates
+    const updates: Array<{ key: string; rotatedValue: string }> = [];
+    for (const row of rawRows) {
+      const rotatedValue = rotateSecretCiphertext(row.value, oldKey, newKey);
+      updates.push({ key: row.key, rotatedValue });
+    }
+
+    // Apply updates
+    for (const u of updates) {
+      await this.db
+        .update(systemSettings)
+        .set({ value: u.rotatedValue, updatedAt: new Date() })
+        .where(eq(systemSettings.key, u.key));
+    }
+
+    return updates.length;
   }
 }

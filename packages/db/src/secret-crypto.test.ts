@@ -51,10 +51,10 @@ describe("secret-crypto (AES-256-GCM secrets at rest)", () => {
     expect(decryptSecret(legacy)).toBe(legacy);
   });
 
-  it("stores plaintext when encryption is not configured (backward compat)", () => {
+  it("fails closed: throws when encrypting without a key (no plaintext fallback)", () => {
     delete process.env.SETTINGS_ENCRYPTION_KEY;
     const value = "no-key-configured";
-    expect(encryptSecret(value)).toBe(value);
+    expect(() => encryptSecret(value)).toThrow(/SETTINGS_ENCRYPTION_KEY is required/);
   });
 
   it("throws when decrypting an encrypted value without the key", () => {

@@ -5,8 +5,6 @@ import { useTranslations } from "next-intl";
 import {
   Check,
   Copy,
-  Eye,
-  EyeOff,
   KeyRound,
   Loader2,
   RefreshCw,
@@ -74,7 +72,6 @@ export default function AdminCredentialManager() {
   const tSettings = useTranslations("settings");
   const [current, setCurrent] = useState<SettingItem | null>(null);
   const [loading, setLoading] = useState(true);
-  const [revealed, setRevealed] = useState(false);
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -91,7 +88,6 @@ export default function AdminCredentialManager() {
       const data = (await res.json()) as { settings: SettingItem[] };
       const item = data.settings.find((s) => s.key === "ADMIN_MASTER_KEY") ?? null;
       setCurrent(item);
-      setRevealed(false);
     } finally {
       setLoading(false);
     }
@@ -154,13 +150,6 @@ export default function AdminCredentialManager() {
     } finally {
       setDeleting(false);
     }
-  };
-
-  const copyCurrent = async () => {
-    if (!current?.rawValue) return;
-    await navigator.clipboard.writeText(current.rawValue);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleClear = async () => {
@@ -250,36 +239,10 @@ export default function AdminCredentialManager() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span
-                          className={`font-mono text-sm truncate transition-all ${
-                            revealed
-                              ? "text-emerald-300"
-                              : "text-slate-300 tracking-widest"
-                          }`}
-                          title={revealed ? (current?.rawValue ?? "") : undefined}
+                          className="font-mono text-sm tracking-widest text-slate-300"
                         >
-                          {revealed
-                            ? (current?.rawValue ?? maskValue(current?.value ?? ""))
-                            : maskValue(current?.value ?? "")}
+                          {maskValue(current?.value ?? "")}
                         </span>
-                        {revealed && (
-                          <>
-                            <button
-                              onClick={copyCurrent}
-                              className="p-1 text-slate-500 hover:text-slate-300 transition-colors"
-                              title={t("copy")}
-                            >
-                              {copied ? (
-                                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400/80 font-mono">
-                              <Fingerprint className="w-3 h-3" />
-                              {current?.rawValue?.length ?? 0} chars
-                            </span>
-                          </>
-                        )}
                       </div>
                       <div className="flex items-center gap-2 mt-1.5">
                         <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-800/80 text-[10px] text-slate-400 font-mono">
@@ -307,21 +270,6 @@ export default function AdminCredentialManager() {
 
                   <div className="flex items-center gap-2 shrink-0">
                     <button
-                      onClick={() => setRevealed((v) => !v)}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg text-slate-300 bg-abyss hover:bg-panel border border-white/10 transition-colors"
-                      title={revealed ? t("hide") : t("reveal")}
-                    >
-                      {revealed ? (
-                        <>
-                          <EyeOff className="w-3.5 h-3.5" /> {t("hide")}
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="w-3.5 h-3.5" /> {t("reveal")}
-                        </>
-                      )}
-                    </button>
-                    <button
                       onClick={handleClear}
                       disabled={deleting}
                       className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg text-rose-300 bg-rose-950/50 hover:bg-rose-900/60 border border-rose-800/60 transition-colors disabled:opacity-40"
@@ -335,14 +283,6 @@ export default function AdminCredentialManager() {
                     </button>
                   </div>
                 </div>
-
-                {/* Revealed hint */}
-                {revealed && (
-                  <div className="mt-4 pt-3 border-t border-white/5 text-[11px] text-slate-500 flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-500/70" />
-                    {t("reveal_hint")}
-                  </div>
-                )}
               </div>
             )}
 

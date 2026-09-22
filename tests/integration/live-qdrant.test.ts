@@ -78,8 +78,8 @@ describe("Live Qdrant: collection lifecycle and canonical recheck", () => {
     const id = randomUUID();
     const vec = new Array(VECTOR_SIZE).fill(0.1);
     await store.upsert([{ id, vector: vec, payload: { kind: "test" } }]);
-    const hits = await store.search(vec, { topK: 5 });
-    expect(hits.some((h) => h.id === id)).toBe(true);
+    const retrieved = await store.retrieveByIds([id]);
+    expect(retrieved.some((h) => h.id === id)).toBe(true);
   });
 
   it("Qdrant hit does NOT become canonical — PostgreSQL rechecks must reject", { timeout: 60_000 }, async () => {

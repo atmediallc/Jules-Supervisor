@@ -49,6 +49,7 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    fileParallelism: false,
     environment: "node",
     include: ["**/*.test.ts"],
     exclude: ["**/node_modules/**", "**/dist/**", "**/.next/**", "**/*.spec.ts"],

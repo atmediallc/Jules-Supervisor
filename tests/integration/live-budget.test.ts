@@ -4,7 +4,6 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq } from "drizzle-orm";
 import pg from "pg";
 import { BudgetRepository } from "../../packages/db/src/repositories/budget.repository";
 import { sessions } from "../../packages/db/src/schema";
@@ -87,5 +86,38 @@ describe("Live budget: concurrent increments are atomic", () => {
     );
     const after = await budgetRepo.findBySession(SESSION_ID);
     expect(after!.corrections).toBe(N);
+  });
+
+  it("Hard budget cap: evaluated pre-execution, rejects actions once limit is reached", async () => {
+    // Proves that while incrementUsage atomically records consumption,
+    // hard caps are checked at the engine gate (evaluateBudgetExhaustion).
+    const { evaluateBudgetExhaustion } = await import("@jules/core");
+
+    const HARD_LIMITS = {
+      maxAiCalls: 5,
+      maxTotalTokens: 1000,
+      maxCostUsd: 1.0,
+      maxCorrections: 3,
+    };
+
+    // Before exhaustion
+    const current = await budgetRepo.findBySession(SESSION_ID);
+    const result = evaluateBudgetExhaustion(
+      {
+        aiCalls: current!.aiCalls,
+        promptTokens: current!.promptTokens,
+        completionTokens: current!.completionTokens,
+        totalTokens: current!.totalTokens,
+        estimatedCostUsd: current!.estimatedCostUsd,
+        corrections: current!.corrections,
+      },
+      HARD_LIMITS,
+    );
+
+    // In the earlier test, 20 calls were made, so AI calls and cost exceed the hard limits of 5 calls / $1.0
+    expect(result.exceeded).toBe(true);
+    expect(result.reasons.length).toBeGreaterThan(0);
+    expect(result.reasons.some((r) => r.includes("AI call budget exhausted"))).toBe(true);
+    expect(result.reasons.some((r) => r.includes("Cost budget exhausted"))).toBe(true);
   });
 });

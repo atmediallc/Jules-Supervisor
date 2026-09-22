@@ -10,11 +10,9 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import pg from "pg";
 import { MockJulesClient } from "../../packages/jules-client/src/mock";
-import { JulesApiClient } from "../../packages/jules-client/src/api";
-import type { JulesActivity, JulesSession } from "../../packages/jules-client/src/types";
 import {
   sessions,
   activities,
@@ -22,7 +20,6 @@ import {
 } from "../../packages/db/src/schema";
 import { SyncCheckpointRepository } from "../../packages/db/src/repositories/sync-checkpoint.repository";
 import { SessionRepository } from "../../packages/db/src/repositories/session.repository";
-import { ActivityRepository } from "../../packages/db/src/repositories/activity.repository";
 
 const DATABASE_URL =
   process.env.DATABASE_URL ??
@@ -66,8 +63,6 @@ afterAll(async () => {
 describe("Live polling load: 20 sessions in one tick", () => {
   it("CheckpointRepository writes checkpoints for all 20 sessions", async () => {
     const cpRepo = new SyncCheckpointRepository(db as never);
-    const sessionRepo = new SessionRepository(db as never);
-    const activityRepo = new ActivityRepository(db as never);
 
     const startedAt = Date.now();
     await Promise.all(

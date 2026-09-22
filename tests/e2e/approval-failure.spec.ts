@@ -30,7 +30,8 @@ for (const failure of [409, 503, "network"] as const) {
     await page.getByRole("button", { name: /edit response/i }).click();
     await page.locator("textarea").fill("Preserve the operator's correction");
     await page.getByRole("button", { name: /save.*send/i }).click();
-    await expect(page.getByRole("alert")).toBeVisible();
+    const errorAlert = page.locator("div[role='alert']:not(#__next-route-announcer__)");
+    await expect(errorAlert).toBeVisible();
     await expect(page.locator("textarea")).toHaveValue("Preserve the operator's correction");
     await expect(page.getByText("approval-fixture", { exact: true })).toBeVisible();
     await expect(page.getByText(/marked as .* successfully/i)).toHaveCount(0);
@@ -38,7 +39,7 @@ for (const failure of [409, 503, "network"] as const) {
     fail = false;
     await page.getByRole("button", { name: /save.*send/i }).click();
     await expect(page.getByText(/marked as EDITED successfully/i)).toBeVisible();
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(errorAlert).toHaveCount(0);
     await expect(page.locator("textarea")).toHaveCount(0);
   });
 }

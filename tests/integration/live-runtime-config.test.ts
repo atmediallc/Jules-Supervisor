@@ -8,12 +8,9 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq } from "drizzle-orm";
 import pg from "pg";
 import { SystemSettingsRepository } from "../../packages/db/src/repositories/system-settings.repository";
-import { getDatabase } from "../../packages/db/src/client";
 import { RuntimeConfigSynchronizer } from "../../apps/worker/src/runtime-config";
-import { getConfig, setDbOverrides } from "../../packages/config/src";
 
 const DATABASE_URL =
   process.env.DATABASE_URL ??

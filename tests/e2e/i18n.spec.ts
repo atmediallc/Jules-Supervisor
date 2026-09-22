@@ -30,7 +30,7 @@ test.describe("i18n language switching (dashboard)", () => {
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
 
     // Flip to Spanish via the header switcher.
-    await page.getByRole("button", { name: "ES", exact: true }).click();
+    await page.getByRole("button", { name: /switch language to es/i }).click();
 
     // Switcher reloads the page; wait for the ES chrome to appear.
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
@@ -58,10 +58,10 @@ test.describe("i18n language switching (dashboard)", () => {
   test("switching back to English restores English chrome", async ({ page }) => {
     await page.goto("/");
 
-    await page.getByRole("button", { name: "ES", exact: true }).click();
+    await page.getByRole("button", { name: /switch language to es/i }).click();
     await expect(page.locator("html")).toHaveAttribute("lang", "es");
 
-    await page.getByRole("button", { name: "EN", exact: true }).click();
+    await page.getByRole("button", { name: /switch language to en/i }).click();
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(page.locator("body")).toContainText("Overview");
   });

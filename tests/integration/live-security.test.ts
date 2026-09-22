@@ -2,7 +2,7 @@
  * Live security tests: rate limiter, IP extraction, and origin/CSRF policy.
  * These are exercised against the actual code modules, not a running server.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   isRateLimited,
   rateLimitKey,
